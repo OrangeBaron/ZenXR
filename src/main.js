@@ -26,9 +26,13 @@ import GUI from 'lil-gui';
 import { SceneManager } from './core/SceneManager.js';
 import { XRManager } from './core/XRManager.js';
 import { XRInteractionManager } from './core/XRInteractionManager.js';
+import { StateManager } from './core/StateManager.js';
 import { PlacementPreview } from './entities/PlacementPreview.js';
 import { GardenBase } from './entities/GardenBase.js';
 import { loadGardenState, saveGardenState, clearGardenState } from './utils/SaveSystem.js';
+
+/** Ritardo (ms) del debounce fra una notifica di modifica e il salvataggio effettivo. */
+const SAVE_DEBOUNCE_MS = 1000;
 
 /**
  * Rimuove l'overlay di boot statico una volta che l'infrastruttura 3D/XR
@@ -48,10 +52,11 @@ function removeBootOverlay() {
  * @param {SceneManager} sceneManager
  * @param {PlacementPreview} placementPreview
  * @param {GardenBase} garden
+ * @param {StateManager} stateManager
  * @param {() => void} onResetMemory Azzera il salvataggio e ricarica il giardino.
  * @returns {GUI}
  */
-function createDebugGUI(sceneManager, placementPreview, garden, onResetMemory) {
+function createDebugGUI(sceneManager, placementPreview, garden, stateManager, onResetMemory) {
   const gui = new GUI({ title: 'ZenXR • Debug' });
 
   const lightsFolder = gui.addFolder('Illuminazione (provvisoria)');
@@ -82,13 +87,20 @@ function createDebugGUI(sceneManager, placementPreview, garden, onResetMemory) {
     )
     .name('Mostra al centro');
 
-  // Fase 3 (GDD §2): in futuro questa azione sarà sostituita dal rituale
+  // Fase 4 (GDD §2): in futuro questa azione sarà sostituita dal rituale
   // fisico del gong ("colpirlo 3 volte per ripulire il giardino"); per ora,
   // finché l'hand-tracking non è disponibile, è un bottone di debug.
-  const memoryFolder = gui.addFolder('Memoria (Fase 3)');
+  const memoryFolder = gui.addFolder('Memoria');
   memoryFolder
     .add({ reset: onResetMemory }, 'reset')
     .name('Reset memoria giardino');
+
+  // In attesa dell'hand-tracking (Fase 4), questo bottone simula
+  // un'interazione con un oggetto del giardino per verificare che il
+  // debounce e il salvataggio dinamico via StateManager funzionino.
+  memoryFolder
+    .add({ simula: () => stateManager.notifyChange() }, 'simula')
+    .name('Simula modifica e salva');
 
   return gui;
 }
@@ -116,7 +128,20 @@ function bootstrap() {
     saveGardenState(garden.getState());
   }
 
-  const gui = createDebugGUI(sceneManager, placementPreview, garden, () => {
+  // Fase 3 (GDD §2): lo StateManager fa solo da "campanello" (nessun I/O,
+  // nessun THREE.js) — è main.js a decidere come reagire alle notifiche di
+  // modifica, qui con un debounce per non scrivere su LocalStorage a ogni
+  // frame quando in futuro le interazioni (Fase 4+) saranno continue.
+  const stateManager = new StateManager();
+  let saveDebounceTimer = null;
+  stateManager.onChange(() => {
+    clearTimeout(saveDebounceTimer);
+    saveDebounceTimer = setTimeout(() => {
+      saveGardenState(garden.getState());
+    }, SAVE_DEBOUNCE_MS);
+  });
+
+  const gui = createDebugGUI(sceneManager, placementPreview, garden, stateManager, () => {
     clearGardenState();
     window.location.reload();
   });

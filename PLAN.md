@@ -2,7 +2,7 @@
 
 Questo documento definisce le fasi di sviluppo iterativo per il progetto ZenXR, rispettando l'approccio modulare, procedurale e "AI-Friendly" in Vanilla JS.
 
-## **Fase 1: Setup dell'Infrastruttura di Base (Vanilla & Import Maps) [COMPLETATA]**
+## ✅ **Fase 1: Setup dell'Infrastruttura di Base (Vanilla & Import Maps)**
 
 **Obiettivo:** Creare l'architettura dei file e garantire che le dipendenze vengano caricate correttamente senza bundler.
 **Task:**
@@ -12,7 +12,7 @@ Questo documento definisce le fasi di sviluppo iterativo per il progetto ZenXR, 
 * Creare il file di entry point `<script type="module" src="./src/main.js">`.
 * Testare l'avvio con un server locale (es. Live Server).
 
-## **Fase 2: Core 3D e Setup Iniziale WebXR [COMPLETATA]**
+## ✅ **Fase 2: Core 3D e Setup Iniziale WebXR**
 
 **Obiettivo:** Inizializzare la scena 3D di base e abilitare la modalità *Immersive-AR*.
 **Task:**
@@ -22,7 +22,7 @@ Questo documento definisce le fasi di sviluppo iterativo per il progetto ZenXR, 
 * Implementare l'Hit-Testing API per posizionare un reticolo temporaneo sul pavimento o sul tavolo reale.
 * Inserire `lil-gui` nel browser per il debugging dei parametri procedurali (nascosto in visore, visibile su monitor).
 
-## **Fase 3: Generazione Procedurale degli Asset (Ambiente Base) [COMPLETATA]**
+## ✅ **Fase 3: Generazione Procedurale degli Asset (Ambiente Base)**
 
 **Obiettivo:** Costruire gli elementi visivi usando solo le primitive di Three.js e materiali `MeshMatcapMaterial` a flat shading.
 **Task:**
@@ -31,7 +31,7 @@ Questo documento definisce le fasi di sviluppo iterativo per il progetto ZenXR, 
 * Creare `BonsaiGenerator.js`: implementare un L-System semplificato usando `CylinderGeometry` per i rami e `IcosahedronGeometry` per la chioma.
 * Creare `RockGenerator.js`: generare rocce deformando i vertici di `DodecahedronGeometry` con una funzione di rumore.
 
-## **Fase 4: Gestione dello Stato e Persistenza dei Dati [COMPLETATA/IN CORSO]**
+## ✅ **Fase 4: Gestione dello Stato e Persistenza dei Dati**
 
 **Obiettivo:** Garantire che il giardino possa evolvere e salvare i propri progressi.
 **Task:**
@@ -47,7 +47,6 @@ Questo documento definisce le fasi di sviluppo iterativo per il progetto ZenXR, 
 
 * Implementare `HandTrackingManager.js` per leggere gli input delle mani (Pinch, Grab).
 * Gestire le collisioni visive (bounding box) dei polpastrelli per l'interazione con gli elementi del giardino.
-*(Nota: L'intera vasca è ora fissa una volta posizionata inizialmente; non è consentita la manipolazione globale).*
 
 ## **Fase 6: Fisica, Stone Balancing e Suono Spaziale**
 
