@@ -30,7 +30,8 @@ export class SceneManager {
     );
     // Posizione di anteprima utile solo per il test desktop (fuori sessione XR,
     // dove la posa camera è comunque pilotata dal dispositivo).
-    this.camera.position.set(0, 1.6, 2);
+    this.camera.position.set(0, 1.0, 0);
+    this.camera.lookAt(0, 0, -1.5);
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
