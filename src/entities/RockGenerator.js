@@ -18,6 +18,7 @@
  */
 import * as THREE from 'three';
 import { createMatcapTexture } from '../utils/MatcapTextureFactory.js';
+import { serializeGeometryPositions, geometryFromPositions } from '../utils/GeometrySerializer.js';
 
 /**
  * @param {Object} [options]
@@ -78,5 +79,48 @@ export function createRock({
 
   const mesh = new THREE.Mesh(geometry, material);
   mesh.receiveShadow = true;
+  // Il colore vero è "cotto" nella texture matcap, non in `material.color`
+  // (che resta bianco di default): lo teniamo qui per poterlo serializzare.
+  mesh.userData.color = color;
+  return mesh;
+}
+
+/**
+ * Cattura forma (vertici deformati), colore, posizione e rotazione di una
+ * roccia già generata, in un oggetto JSON-serializzabile pronto per il
+ * `SaveSystem` (Fase 3, GDD §2). Salvare i vertici finali invece dei soli
+ * parametri di generazione garantisce un ripristino a pixel identico, dato
+ * che la deformazione a rumore di `createRock` non è seedabile.
+ *
+ * @param {THREE.Mesh} rock Roccia creata da `createRock`.
+ * @returns {Object} Stato serializzabile della roccia.
+ */
+export function serializeRock(rock) {
+  return {
+    positions: serializeGeometryPositions(rock.geometry),
+    color: rock.userData.color,
+    position: rock.position.toArray(),
+    rotation: rock.rotation.toArray().slice(0, 3),
+  };
+}
+
+/**
+ * Ricostruisce una roccia a partire dallo stato prodotto da `serializeRock`.
+ * @param {Object} data
+ * @returns {THREE.Mesh}
+ */
+export function deserializeRock(data) {
+  const geometry = geometryFromPositions(data.positions);
+  const material = new THREE.MeshMatcapMaterial({
+    matcap: createMatcapTexture(data.color),
+    flatShading: true,
+  });
+
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.position.fromArray(data.position);
+  mesh.rotation.set(data.rotation[0], data.rotation[1], data.rotation[2]);
+  mesh.receiveShadow = true;
+  mesh.castShadow = true;
+  mesh.userData.color = data.color;
   return mesh;
 }

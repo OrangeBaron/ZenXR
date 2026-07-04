@@ -25,6 +25,7 @@
  */
 import * as THREE from 'three';
 import { createMatcapTexture } from '../utils/MatcapTextureFactory.js';
+import { serializeGeometryPositions, geometryFromPositions } from '../utils/GeometrySerializer.js';
 
 const barkMaterial = new THREE.MeshMatcapMaterial({
   matcap: createMatcapTexture(0x5a3d2b),
@@ -68,6 +69,7 @@ function createSegmentedLimb({ length, baseRadius, tipRadius, segments, bendStre
     geometry.translate(0, segmentLength / 2, 0);
     const mesh = new THREE.Mesh(geometry, barkMaterial);
     mesh.castShadow = true;
+    mesh.userData.kind = 'branch'; // marcatura per il (de)serializzatore di stato (Fase 3)
     current.add(mesh);
 
     const nextJoint = new THREE.Group();
@@ -129,6 +131,7 @@ function addFoliageCluster(tip, branchLength) {
     leaf.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
     leaf.castShadow = true;
     leaf.userData.isDry = isDry; // marcatura per la futura potatura via pinch (Fase 4/7)
+    leaf.userData.kind = 'leaf'; // marcatura per il (de)serializzatore di stato (Fase 3)
 
     tip.add(leaf);
   }
@@ -206,4 +209,73 @@ export function createBonsai({
     depth: branchDepth,
     segments: TRUNK_SEGMENTS,
   });
+}
+
+/**
+ * Serializza ricorsivamente l'intero albero (gruppi, segmenti di rami e
+ * foglie) in un oggetto JSON-serializzabile, per la persistenza tramite
+ * `SaveSystem` (Fase 3, GDD §2). Vengono salvati forma (vertici), colore e
+ * trasformazione locale di ogni nodo, così il ripristino ricrea l'identica
+ * geometria generata proceduralmente invece di rigenerarne una nuova casuale.
+ *
+ * @param {THREE.Group} bonsai Radice dell'albero creata da `createBonsai`.
+ * @returns {Object} Stato serializzabile dell'albero.
+ */
+export function serializeBonsai(bonsai) {
+  return serializeNode(bonsai);
+}
+
+function serializeNode(object) {
+  const node = {
+    position: object.position.toArray(),
+    quaternion: object.quaternion.toArray(),
+    children: object.children.map(serializeNode),
+  };
+
+  if (object.isMesh) {
+    node.kind = object.userData.kind;
+    node.positions = serializeGeometryPositions(object.geometry);
+    if (node.kind === 'leaf') {
+      node.color = object.material.color.getHex();
+      node.isDry = !!object.userData.isDry;
+    }
+  }
+
+  return node;
+}
+
+/**
+ * Ricostruisce l'albero (gruppi, rami e foglie) a partire dallo stato
+ * prodotto da `serializeBonsai`.
+ * @param {Object} data
+ * @returns {THREE.Group}
+ */
+export function deserializeBonsai(data) {
+  return deserializeNode(data);
+}
+
+function deserializeNode(data) {
+  const object = data.kind ? createNodeMesh(data) : new THREE.Group();
+
+  object.position.fromArray(data.position);
+  object.quaternion.fromArray(data.quaternion);
+  data.children.forEach((childData) => object.add(deserializeNode(childData)));
+
+  return object;
+}
+
+function createNodeMesh(data) {
+  const geometry = geometryFromPositions(data.positions);
+  const isLeaf = data.kind === 'leaf';
+
+  const material = isLeaf
+    ? new THREE.MeshMatcapMaterial({ matcap: LEAF_MATCAP, flatShading: true, color: data.color })
+    : barkMaterial;
+
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.castShadow = true;
+  mesh.userData.kind = data.kind;
+  if (isLeaf) mesh.userData.isDry = data.isDry;
+
+  return mesh;
 }

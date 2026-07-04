@@ -2,19 +2,20 @@
  * ============================================================================
  * ZenXR — main.js  (Entry Point dell'applicazione)
  * ============================================================================
- * Fase 2 + primi passi di Fase 4/5: Core 3D, WebXR, posizionamento del
- * giardino tramite trigger/pinch e prima generazione procedurale (base,
- * bonsai centrale e rocce sparse casualmente).
+ * Fase 2 + primi passi di Fase 3/4/5: Core 3D, WebXR, posizionamento del
+ * giardino tramite trigger/pinch, prima generazione procedurale (base,
+ * bonsai centrale e rocce sparse casualmente) e persistenza dello stato su
+ * LocalStorage tramite `/src/utils/SaveSystem.js`.
  *
  * Responsabilità (Single Responsibility Principle):
  *   Questo file orchestra soltanto l'inizializzazione dei moduli core e
  *   l'animation loop. NON contiene logica di gioco, generazione procedurale
- *   o gestione dello stato: quella arriverà nelle fasi successive tramite
- *   moduli dedicati:
- *     - /src/core/StateManager.js   (stato globale)              [Fase 3]
- *     - /src/utils/SaveSystem.js    (persistenza LocalStorage)   [Fase 3]
- *     - /src/core/HandTrackingManager.js (input mani avanzato)   [Fase 4]
- *     - /src/entities/KoiBoids.js, ...                           [Fase 5+]
+ *   o (de)serializzazione dello stato: quella arriverà/è arrivata nelle fasi
+ *   successive tramite moduli dedicati:
+ *     - /src/entities/GardenBase.js (getState/ripristino rocce+albero) [Fase 3]
+ *     - /src/utils/SaveSystem.js    (persistenza LocalStorage)         [Fase 3]
+ *     - /src/core/HandTrackingManager.js (input mani avanzato)         [Fase 4]
+ *     - /src/entities/KoiBoids.js, ...                                 [Fase 5+]
  *
  * Vincoli architetturali (GDD §7):
  *   - Puro Vanilla JS (ES6+). Nessun framework UI.
@@ -27,6 +28,7 @@ import { XRManager } from './core/XRManager.js';
 import { XRInteractionManager } from './core/XRInteractionManager.js';
 import { PlacementPreview } from './entities/PlacementPreview.js';
 import { GardenBase } from './entities/GardenBase.js';
+import { loadGardenState, saveGardenState, clearGardenState } from './utils/SaveSystem.js';
 
 /**
  * Rimuove l'overlay di boot statico una volta che l'infrastruttura 3D/XR
@@ -46,9 +48,10 @@ function removeBootOverlay() {
  * @param {SceneManager} sceneManager
  * @param {PlacementPreview} placementPreview
  * @param {GardenBase} garden
+ * @param {() => void} onResetMemory Azzera il salvataggio e ricarica il giardino.
  * @returns {GUI}
  */
-function createDebugGUI(sceneManager, placementPreview, garden) {
+function createDebugGUI(sceneManager, placementPreview, garden, onResetMemory) {
   const gui = new GUI({ title: 'ZenXR • Debug' });
 
   const lightsFolder = gui.addFolder('Illuminazione (provvisoria)');
@@ -79,6 +82,14 @@ function createDebugGUI(sceneManager, placementPreview, garden) {
     )
     .name('Mostra al centro');
 
+  // Fase 3 (GDD §2): in futuro questa azione sarà sostituita dal rituale
+  // fisico del gong ("colpirlo 3 volte per ripulire il giardino"); per ora,
+  // finché l'hand-tracking non è disponibile, è un bottone di debug.
+  const memoryFolder = gui.addFolder('Memoria (Fase 3)');
+  memoryFolder
+    .add({ reset: onResetMemory }, 'reset')
+    .name('Reset memoria giardino');
+
   return gui;
 }
 
@@ -95,10 +106,20 @@ function bootstrap() {
   const placementPreview = new PlacementPreview();
   sceneManager.scene.add(placementPreview.mesh);
 
-  const garden = new GardenBase();
+  // Fase 3 (GDD §2): al primo avvio non c'è nulla da ripristinare, quindi il
+  // giardino nasce dalla generazione procedurale casuale e viene salvato
+  // subito, per non rigenerare rocce/albero diversi a ogni ricarica.
+  const savedState = loadGardenState();
+  const garden = new GardenBase({ savedState });
   sceneManager.scene.add(garden.group);
+  if (!savedState) {
+    saveGardenState(garden.getState());
+  }
 
-  const gui = createDebugGUI(sceneManager, placementPreview, garden);
+  const gui = createDebugGUI(sceneManager, placementPreview, garden, () => {
+    clearGardenState();
+    window.location.reload();
+  });
 
   const xrManager = new XRManager({
     renderer: sceneManager.renderer,

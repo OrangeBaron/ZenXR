@@ -17,8 +17,8 @@
  * ============================================================================
  */
 import * as THREE from 'three';
-import { createRock } from './RockGenerator.js';
-import { createBonsai } from './BonsaiGenerator.js';
+import { createRock, serializeRock, deserializeRock } from './RockGenerator.js';
+import { createBonsai, serializeBonsai, deserializeBonsai } from './BonsaiGenerator.js';
 import { createMatcapTexture } from '../utils/MatcapTextureFactory.js';
 import {
   GARDEN_WIDTH,
@@ -32,9 +32,11 @@ export class GardenBase {
    * @param {Object} [options]
    * @param {number} [options.width=GARDEN_WIDTH] Larghezza della vasca in metri.
    * @param {number} [options.depth=GARDEN_DEPTH] Profondità della vasca in metri.
-   * @param {number} [options.rockCount=8] Numero di rocce da disporre inizialmente.
+   * @param {number} [options.rockCount=8] Numero di rocce da disporre inizialmente (ignorato se `savedState` è presente).
+   * @param {Object|null} [options.savedState=null] Stato prodotto da `getState()` e riletto da `SaveSystem` (Fase 3, GDD §2):
+   *   se presente, rocce e albero vengono ripristinati esattamente invece di essere rigenerati casualmente.
    */
-  constructor({ width = GARDEN_WIDTH, depth = GARDEN_DEPTH, rockCount = 8 } = {}) {
+  constructor({ width = GARDEN_WIDTH, depth = GARDEN_DEPTH, rockCount = 8, savedState = null } = {}) {
     this.width = width;
     this.depth = depth;
     this.rocks = [];
@@ -45,8 +47,33 @@ export class GardenBase {
     this._buildTray();
     this._buildSand();
     this._buildBambooFence();
-    this._addBonsai();
-    this._scatterRocks(rockCount);
+
+    if (savedState?.bonsai) {
+      this.bonsai = deserializeBonsai(savedState.bonsai);
+      this.group.add(this.bonsai);
+    } else {
+      this._addBonsai();
+    }
+
+    if (savedState?.rocks?.length) {
+      this._restoreRocks(savedState.rocks);
+    } else {
+      this._scatterRocks(rockCount);
+    }
+  }
+
+  /**
+   * Cattura lo stato corrente di rocce e albero (forma, colore, posizione e
+   * rotazione) in un oggetto JSON-serializzabile pronto per `SaveSystem`
+   * (Fase 3, GDD §2).
+   * @returns {Object}
+   */
+  getState() {
+    return {
+      version: 1,
+      rocks: this.rocks.map(serializeRock),
+      bonsai: serializeBonsai(this.bonsai),
+    };
   }
 
   _buildTray() {
@@ -155,6 +182,19 @@ export class GardenBase {
       this.group.add(rock);
       this.rocks.push(rock);
       placed++;
+    }
+  }
+
+  /**
+   * Ricostruisce le rocce da uno stato salvato (Fase 3, GDD §2), al posto
+   * della dispersione casuale di `_scatterRocks`.
+   * @param {Object[]} rocksState Array prodotto da `serializeRock` per ogni roccia.
+   */
+  _restoreRocks(rocksState) {
+    for (const rockState of rocksState) {
+      const rock = deserializeRock(rockState);
+      this.group.add(rock);
+      this.rocks.push(rock);
     }
   }
 }
