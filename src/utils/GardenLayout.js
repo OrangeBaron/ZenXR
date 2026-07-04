@@ -13,3 +13,11 @@ export const GARDEN_WIDTH = 1.0;
 export const GARDEN_DEPTH = 0.7;
 export const GARDEN_WALL_THICKNESS = 0.02;
 export const GARDEN_TRAY_HEIGHT = 0.04;
+
+/**
+ * Quota di superficie della vasca destinata al laghetto (Fase 5, GDD §4):
+ * circa un terzo al laghetto, i restanti due terzi alla zona sabbiosa.
+ * Usata da `GardenBase._createPondLayout()` per dimensionare la "zona" del
+ * laghetto prima di generarne la forma organica (vedi `PondGenerator.js`).
+ */
+export const POND_AREA_RATIO = 1 / 3;

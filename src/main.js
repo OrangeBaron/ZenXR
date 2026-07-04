@@ -2,20 +2,21 @@
  * ============================================================================
  * ZenXR — main.js  (Entry Point dell'applicazione)
  * ============================================================================
- * Fase 2 + primi passi di Fase 3/4/5: Core 3D, WebXR, posizionamento del
- * giardino tramite trigger/pinch, prima generazione procedurale (base,
- * bonsai centrale e rocce sparse casualmente) e persistenza dello stato su
- * LocalStorage tramite `/src/utils/SaveSystem.js`.
+ * Fase 2 + Fase 3/4/5: Core 3D, WebXR, posizionamento del giardino tramite
+ * trigger/pinch, generazione procedurale (vasca a due zone con laghetto,
+ * bonsai e rocce disposti casualmente ma sempre fuori dall'acqua) e
+ * persistenza dello stato su LocalStorage tramite `/src/utils/SaveSystem.js`.
  *
  * Responsabilità (Single Responsibility Principle):
  *   Questo file orchestra soltanto l'inizializzazione dei moduli core e
  *   l'animation loop. NON contiene logica di gioco, generazione procedurale
  *   o (de)serializzazione dello stato: quella arriverà/è arrivata nelle fasi
  *   successive tramite moduli dedicati:
- *     - /src/entities/GardenBase.js (getState/ripristino rocce+albero) [Fase 3]
+ *     - /src/entities/GardenBase.js (getState/ripristino laghetto+rocce+albero) [Fase 3/5]
+ *     - /src/entities/PondGenerator.js (laghetto procedurale a "macchia")       [Fase 5]
  *     - /src/utils/SaveSystem.js    (persistenza LocalStorage)         [Fase 3]
- *     - /src/core/HandTrackingManager.js (input mani avanzato)         [Fase 4]
- *     - /src/entities/KoiBoids.js, ...                                 [Fase 5+]
+ *     - /src/core/HandTrackingManager.js (input mani avanzato)         [Fase 6]
+ *     - /src/entities/KoiBoids.js, ...                                 [Fase 8+]
  *
  * Vincoli architetturali (GDD §7):
  *   - Puro Vanilla JS (ES6+). Nessun framework UI.
