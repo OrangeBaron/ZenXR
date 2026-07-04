@@ -51,6 +51,7 @@ Questo documento definisce le fasi di sviluppo iterativo per il progetto ZenXR, 
 
 * Implementare `HandTrackingManager.js` per leggere gli input delle mani (Pinch, Grab).
 * Gestire le collisioni visive (bounding box) dei polpastrelli per l'interazione con gli elementi del giardino.
+* Permettere all'utente di "pizzicare" (pinch) le foglie secche per staccarle dai rami. La foglia resta attaccata alla mano e viene distrutta/scompare quando il pinch viene rilasciato.
 
 ## **Fase 6: Fisica, Stone Balancing e Suono Spaziale**
 
@@ -60,6 +61,7 @@ Questo documento definisce le fasi di sviluppo iterativo per il progetto ZenXR, 
 
 * Integrare il motore fisico (es. `PhysicsManager.js` con Rapier) e mappare le rocce procedurali come corpi rigidi.
 * Implementare l'interazione di "Grab & Drop" con le mani per impilare le rocce (Stone Balancing).
+* Aggiornare la logica delle foglie staccate in Fase 5; al rilascio del pinch, la foglia diventa un corpo rigido fisico che cade per gravità sul terreno prima di dissolversi.
 * Aggiungere `AudioManager.js`: integrare suoni spaziali (`PositionalAudio`) per gli urti fisici delle rocce e per un gong/Furin posizionato proceduralmente.
 
 ## **Fase 7: Vita, Shader e Meditazione**
