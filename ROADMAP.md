@@ -2,7 +2,7 @@
 
 Questo documento definisce le fasi di sviluppo iterativo per il progetto ZenXR, rispettando l'approccio modulare, procedurale e "AI-Friendly" in Vanilla JS.
 
-## ✅ **Fase 1: Setup dell'Infrastruttura di Base (Vanilla & Import Maps)**
+## ✅ Fase 1: Setup dell'Infrastruttura di Base (Vanilla & Import Maps)
 
 **Obiettivo:** Creare l'architettura dei file e garantire che le dipendenze vengano caricate correttamente senza bundler.
 
@@ -13,7 +13,7 @@ Questo documento definisce le fasi di sviluppo iterativo per il progetto ZenXR, 
 * Creare il file di entry point `<script type="module" src="./src/main.js">`.
 * Testare l'avvio con un server locale (es. Live Server).
 
-## ✅ **Fase 2: Core 3D e Setup Iniziale WebXR**
+## ✅ Fase 2: Core 3D e Setup Iniziale WebXR
 
 **Obiettivo:** Inizializzare la scena 3D di base e abilitare la modalità *Immersive-AR*.
 
@@ -24,7 +24,7 @@ Questo documento definisce le fasi di sviluppo iterativo per il progetto ZenXR, 
 * Implementare l'Hit-Testing API per posizionare un reticolo temporaneo sul pavimento o sul tavolo reale.
 * Inserire `lil-gui` nel browser per il debugging dei parametri procedurali (nascosto in visore, visibile su monitor).
 
-## ✅ **Fase 3: Generazione Procedurale degli Asset (Ambiente Base)**
+## ✅ Fase 3: Generazione Procedurale degli Asset (Ambiente Base)
 
 **Obiettivo:** Costruire gli elementi visivi usando solo le primitive di Three.js e materiali `MeshMatcapMaterial` a flat shading.
 
@@ -34,7 +34,7 @@ Questo documento definisce le fasi di sviluppo iterativo per il progetto ZenXR, 
 * Creare `BonsaiGenerator.js`: implementare un L-System semplificato usando `CylinderGeometry` per i rami e `IcosahedronGeometry` per la chioma.
 * Creare `RockGenerator.js`: generare rocce deformando i vertici di `DodecahedronGeometry` con una funzione di rumore.
 
-## ✅ **Fase 4: Gestione dello Stato e Persistenza dei Dati**
+## ✅ Fase 4: Gestione dello Stato e Persistenza dei Dati
 
 **Obiettivo:** Garantire che il giardino possa evolvere e salvare i propri progressi.
 
@@ -44,16 +44,27 @@ Questo documento definisce le fasi di sviluppo iterativo per il progetto ZenXR, 
 * Creare `SaveSystem.js` per leggere e scrivere questi dati su `LocalStorage`.
 * Implementare la logica di ripristino al caricamento e la funzione "Reset" globale.
 
-## **Fase 5: Hand-Tracking e Interazioni Base**
+## Fase 5: Riorganizzazione Spaziale e Laghetto Procedurale
+
+**Obiettivo:** Rompere la simmetria creando una divisione organica degli spazi all'interno della vasca.
+
+**Task:**
+
+* Creare `PondGenerator.js`: generare la geometria del laghetto creando una forma a "macchia" irregolare (utilizzando curve o funzioni di rumore su un piano).
+* Modificare `GardenBase.js` per gestire il nuovo layout dinamico: destinare circa un terzo (1/3) della vasca al laghetto e i restanti due terzi (2/3) all'area sabbiosa.
+* Assicurarsi che le posizioni, la forma del laghetto, le rocce e il bonsai siano generati sempre in punti casuali e coerenti con la nuova topologia (es. il bonsai non deve finire in acqua).
+
+## Fase 6: Hand-Tracking e Interazioni Base
 
 **Obiettivo:** Abbandonare i controller e mappare le mani dell'utente.
+
 **Task:**
 
 * Implementare `HandTrackingManager.js` per leggere gli input delle mani (Pinch, Grab).
 * Gestire le collisioni visive (bounding box) dei polpastrelli per l'interazione con gli elementi del giardino.
 * Permettere all'utente di "pizzicare" (pinch) le foglie secche per staccarle dai rami. La foglia resta attaccata alla mano e viene distrutta/scompare quando il pinch viene rilasciato.
 
-## **Fase 6: Fisica, Stone Balancing e Suono Spaziale**
+## Fase 7: Fisica, Stone Balancing e Suono Spaziale
 
 **Obiettivo:** Dare peso e presenza agli oggetti, stimolando i sensi.
 
@@ -61,21 +72,22 @@ Questo documento definisce le fasi di sviluppo iterativo per il progetto ZenXR, 
 
 * Integrare il motore fisico (es. `PhysicsManager.js` con Rapier) e mappare le rocce procedurali come corpi rigidi.
 * Implementare l'interazione di "Grab & Drop" con le mani per impilare le rocce (Stone Balancing).
-* Aggiornare la logica delle foglie staccate in Fase 5; al rilascio del pinch, la foglia diventa un corpo rigido fisico che cade per gravità sul terreno prima di dissolversi.
+* Aggiornare la logica delle foglie staccate in Fase 6; al rilascio del pinch, la foglia diventa un corpo rigido fisico che cade per gravità sul terreno prima di dissolversi.
 * Aggiungere `AudioManager.js`: integrare suoni spaziali (`PositionalAudio`) per gli urti fisici delle rocce e per un gong/Furin posizionato proceduralmente.
 
-## **Fase 7: Vita, Shader e Meditazione**
+## Fase 8: Vita, Shader e Meditazione
 
 **Obiettivo:** Inserire elementi dinamici e reattivi per animare il giardino.
 
 **Task:**
 
 * **La Sabbia:** Implementare `SandShader.js` (Frame Buffer Object) per tracciare linee dinamiche deformando le normali della texture al passaggio del rastrello virtuale.
-* **Le Koi:** Creare `KoiBoids.js` per simulare il flocking di pesci stilizzati nel laghetto (`ConeGeometry` animate) e l'increspatura dell'acqua.
+* **L'Acqua (Shader Interattivo):** Creare un materiale custom per il laghetto. Quando il sistema di Hand-Tracking rileva che un dito tocca la superficie, lo shader deve reagire generando increspature circolari dinamiche (ripples).
+* **Le Koi:** Creare `KoiBoids.js` per simulare il flocking di pesci stilizzati nel laghetto (`ConeGeometry` animate) che nuotano entro i confini irregolari del laghetto.
 * **L'Incenso:** Creare un particellare leggero per il fumo e la logica temporale (il bastoncino che si accorcia) per il timer meditativo.
 * **I Sakura:** Implementare il particellare per i petali di ciliegio deviati dalle mani dell'utente.
 
-## **Fase 8: Estetica Adattiva, Illuminazione e Polish Finale**
+## Fase 9: Estetica Adattiva, Illuminazione e Polish Finale
 
 **Obiettivo:** Ottimizzare le performance e far reagire il giardino al mondo reale.
 
