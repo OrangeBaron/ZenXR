@@ -163,46 +163,35 @@ export class GardenBase {
   }
 
   /**
-   * Decide la "zona" del laghetto (Fase 5, GDD §4): la vasca viene divisa,
-   * lungo un asse scelto a caso, in una fascia larga circa `POND_AREA_RATIO`
-   * (destinata al laghetto) e una fascia complementare di due terzi
-   * (destinata alla sabbia con bonsai e rocce). Il laghetto viene poi
-   * generato per riempire la propria fascia lasciando un margine dai bordi
-   * della vasca, così qualsiasi punto FUORI dalla fascia è garantito
-   * "asciutto" — e `_randomDryPoint` può comunque usare il contorno reale
-   * (irregolare) del laghetto per posizionare oggetti fino quasi in riva.
+   * Decide la "zona" del laghetto (Fase 5, GDD §4): la vasca viene ancorata
+   * a un angolo scelto a caso, così l'acqua tocca davvero il bordo della
+   * vasca (due lati del laghetto corrono lungo le due pareti dell'angolo,
+   * vedi `PondGenerator.js`) invece di restarne staccata al centro.
+   *
+   * Il laghetto è geometricamente un quarto di ellisse (raggi `radiusX`,
+   * `radiusZ`, angolo=vertice sull'angolo della vasca) con bordo interno
+   * irregolare: la sua area è `π · radiusX · radiusZ / 4`. Dimensioniamo i
+   * raggi proporzionalmente a larghezza/profondità (stesso fattore `k` per
+   * entrambi, per non deformare le proporzioni) così che quest'area risulti
+   * circa `POND_AREA_RATIO` della superficie totale della vasca:
+   *   π·(k·width)·(k·depth)/4 = POND_AREA_RATIO·width·depth
+   *   ⇒ k = √(4·POND_AREA_RATIO / π)
    * @returns {THREE.Mesh}
    */
   _createPondLayout() {
-    const wallMargin = 0.04;
-    const usableWidth = this.width - wallMargin * 2;
-    const usableDepth = this.depth - wallMargin * 2;
+    const cornerX = Math.random() < 0.5 ? -1 : 1;
+    const cornerZ = Math.random() < 0.5 ? -1 : 1;
 
-    const axis = Math.random() < 0.5 ? 'x' : 'z';
-    const side = Math.random() < 0.5 ? -1 : 1;
+    const k = Math.sqrt((4 * POND_AREA_RATIO) / Math.PI);
+    const radiusX = this.width * k;
+    const radiusZ = this.depth * k;
 
-    let zoneWidth, zoneDepth, centerX, centerZ;
-    if (axis === 'x') {
-      zoneWidth = usableWidth * POND_AREA_RATIO;
-      zoneDepth = usableDepth;
-      centerX = side * (usableWidth / 2 - zoneWidth / 2);
-      centerZ = 0;
-    } else {
-      zoneWidth = usableWidth;
-      zoneDepth = usableDepth * POND_AREA_RATIO;
-      centerX = 0;
-      centerZ = side * (usableDepth / 2 - zoneDepth / 2);
-    }
-
-    // Rimpicciolisce leggermente i raggi rispetto alla fascia: il contorno
-    // organico può sporgere rispetto al raggio nominale, quindi questo
-    // margine garantisce che il laghetto resti sempre dentro la propria zona.
-    const shoreClearance = 0.82;
-    const radiusX = (zoneWidth / 2) * shoreClearance;
-    const radiusZ = (zoneDepth / 2) * shoreClearance;
-
-    const pond = createPond({ radiusX, radiusZ });
-    pond.position.set(centerX, this.sandTopY + POND_SURFACE_LIFT, centerZ);
+    const pond = createPond({ cornerX, cornerZ, radiusX, radiusZ });
+    pond.position.set(
+      cornerX * (this.width / 2),
+      this.sandTopY + POND_SURFACE_LIFT,
+      cornerZ * (this.depth / 2)
+    );
     return pond;
   }
 
