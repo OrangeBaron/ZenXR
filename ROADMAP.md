@@ -1,8 +1,8 @@
-# Roadmap di Sviluppo per ZenXR (Aggiornata)
+# Roadmap di Sviluppo per ZenXR
 
 Questo documento definisce le fasi di sviluppo iterativo per il progetto ZenXR, rispettando l'approccio modulare, procedurale e "AI-Friendly" in Vanilla JS.
 
-## Fase 1: Setup dell'Infrastruttura di Base (Vanilla & Import Maps)
+## ✅ Fase 1: Setup dell'Infrastruttura di Base (Vanilla & Import Maps)
 
 **Obiettivo:** Creare l'architettura dei file e garantire che le dipendenze vengano caricate correttamente senza bundler.
 
@@ -12,7 +12,7 @@ Questo documento definisce le fasi di sviluppo iterativo per il progetto ZenXR, 
 * Strutturare le cartelle di progetto e creare il file di entry point `main.js`.
 * Testare l'avvio con un server locale.
 
-## Fase 2: Core 3D e Setup Iniziale WebXR
+## ✅ Fase 2: Core 3D e Setup Iniziale WebXR
 
 **Obiettivo:** Inizializzare la scena 3D di base e abilitare la modalità *Immersive-AR*.
 
@@ -22,7 +22,7 @@ Questo documento definisce le fasi di sviluppo iterativo per il progetto ZenXR, 
 * Creare `XRManager.js` per la sessione `immersive-ar` e implementare l'Hit-Testing per posizionare il giardino sulle superfici reali.
 * Utilizzare le API degli *Anchors* di WebXR per ancorare spazialmente il giardino.
 
-## Fase 3: Generazione Procedurale degli Asset (Ambiente Base)
+## ✅ Fase 3: Generazione Procedurale degli Asset (Ambiente Base)
 
 **Obiettivo:** Costruire gli elementi visivi usando le primitive di Three.js e `MeshMatcapMaterial` a flat shading.
 
@@ -32,7 +32,7 @@ Questo documento definisce le fasi di sviluppo iterativo per il progetto ZenXR, 
 * Creare `BonsaiGenerator.js` (L-System semplificato) e `RockGenerator.js` (deformazione tramite rumore).
 * Utilizzare `MeshSurfaceSampler` per la dispersione organica di elementi di dettaglio.
 
-## Fase 4: Gestione dello Stato e Persistenza dei Dati
+## ✅ Fase 4: Gestione dello Stato e Persistenza dei Dati
 
 **Obiettivo:** Garantire che il giardino possa evolvere e salvare i propri progressi nel tempo.
 
@@ -42,7 +42,7 @@ Questo documento definisce le fasi di sviluppo iterativo per il progetto ZenXR, 
 * Creare `SaveSystem.js` per leggere e scrivere questi dati su `LocalStorage` / `IndexedDB`.
 * Implementare la logica di ripristino al caricamento dell'applicazione.
 
-## Fase 5: Riorganizzazione Spaziale e Laghetto Procedurale
+## ✅ Fase 5: Riorganizzazione Spaziale e Laghetto Procedurale
 
 **Obiettivo:** Rompere la simmetria creando una divisione organica degli spazi all'interno della vasca.
 
@@ -51,7 +51,7 @@ Questo documento definisce le fasi di sviluppo iterativo per il progetto ZenXR, 
 * Creare `PondGenerator.js`: generare la geometria del laghetto (circa 1/3 dello spazio) a forma di "macchia" irregolare.
 * Assicurarsi che rocce e bonsai vengano generati esclusivamente nella zona asciutta.
 
-## Fase 6: Hand-Tracking e Interazioni Base
+## ✅ Fase 6: Hand-Tracking e Interazioni Base
 
 **Obiettivo:** Abbandonare i controller e mappare le mani dell'utente.
 
