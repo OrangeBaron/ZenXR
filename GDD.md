@@ -9,8 +9,7 @@ Un'esperienza creativa, rilassante e meditativa in Mixed Reality. Ci ritroviamo 
 Poiché l'esperienza si svolge nello spazio fisico dell'utente, il sistema deve essere flessibile.
 
 * **Hit-Testing:** All'avvio in modalità `immersive-ar`, usiamo le *WebXR Hit Test API* per rilevare superfici reali (un tavolo, la scrivania o il pavimento). Un reticolo (reticle) indicherà dove posizionare la base del giardino.
-* **Manipolazione Globale (Move, Rotate, Scale):** Il giardino intero deve essere figlio di un singolo `Group` in Three.js. Tramite hand-tracking, l'utente deve poter afferrare la base del giardino con due mani per scalarlo (rimpicciolirlo per una scrivania, ingrandirlo per il pavimento) e trascinarlo per ruotarlo o spostarlo.
-* **WebXR Anchors (Opzionale ma raccomandato):** Utilizzare le API degli *Anchors* per far sì che il giardino "ricordi" la sua esatta posizione fisica nella stanza anche se il tracciamento del visore viene temporaneamente perso.
+* **WebXR Anchors:** Utilizzare le API degli *Anchors* per far sì che il giardino "ricordi" la sua esatta posizione fisica nella stanza anche se il tracciamento del visore viene temporaneamente perso.
 
 ## 2. Persistenza dei Dati (Save & Load)
 

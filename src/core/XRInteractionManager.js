@@ -14,12 +14,6 @@
  * Dopo il primo posizionamento il listener si autodisattiva (`hasPlaced`) e
  * l'anteprima viene nascosta definitivamente, per evitare di riposizionare
  * accidentalmente l'intero giardino a ogni ulteriore trigger/pinch.
- *
- * NOTA per Fase 4: quando verrà introdotta la manipolazione a due mani
- * (move/rotate/scale) e le interazioni pinch su singoli oggetti (rocce,
- * bonsai), questa logica andrà estesa con un modo esplicito di "sblocco"
- * per consentire un riposizionamento intenzionale — per ora è a piazzamento
- * singolo per evitare conflitti con il grab di oggetti specifici.
  * ============================================================================
  */
 export class XRInteractionManager {
