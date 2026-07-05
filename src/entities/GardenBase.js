@@ -63,6 +63,7 @@ export class GardenBase {
       this.pond = this._createPondLayout();
     }
     this.group.add(this.pond);
+    this._addPondPebbles();
 
     if (savedState?.bonsai) {
       this.bonsai = deserializeBonsai(savedState.bonsai);
@@ -193,6 +194,95 @@ export class GardenBase {
       cornerZ * (this.depth / 2)
     );
     return pond;
+  }
+
+  /**
+   * Genera e posiziona i ciottoli lungo il confine irregolare del laghetto.
+   * Sfrutta il contorno già calcolato e salvato dal PondGenerator, unendolo a una
+   * funzione pseudo-casuale: in questo modo i ciottoli si riposizionano
+   * in modo identico al caricamento del salvataggio senza gravare sul SaveSystem.
+   */
+  _addPondPebbles() {
+    const contour = this.pond.userData.contour;
+    if (!contour || contour.length < 2) return;
+
+    // Funzione hash per ottenere una "casualità" riproducibile e sempre uguale
+    const pseudoRandom = (seed) => {
+      const x = Math.sin(seed * 12.9898) * 43758.5453;
+      return x - Math.floor(x);
+    };
+
+    // 1. Geometria e Materiale (piccoli icosaedri low-poly)
+    const pebbleGeometry = new THREE.IcosahedronGeometry(0.02, 0);
+    const pebbleMaterial = new THREE.MeshMatcapMaterial({
+      matcap: createMatcapTexture(0x6e6b66), // Grigio pietra di fiume
+      flatShading: true,
+    });
+
+    // 2. Calcoliamo la lunghezza totale del perimetro frastagliato
+    let totalLength = 0;
+    const segmentLengths = [];
+    for (let i = 0; i < contour.length - 1; i++) {
+      const dist = Math.hypot(contour[i+1].x - contour[i].x, contour[i+1].z - contour[i].z);
+      totalLength += dist;
+      segmentLengths.push(dist);
+    }
+
+    // Vogliamo circa un ciottolo ogni 3 centimetri lungo il bordo
+    const pebbleCount = Math.floor(totalLength / 0.03);
+    const instancedPebbles = new THREE.InstancedMesh(pebbleGeometry, pebbleMaterial, pebbleCount);
+    instancedPebbles.receiveShadow = true;
+    instancedPebbles.castShadow = true;
+
+    const dummy = new THREE.Object3D();
+    
+    // 3. Distribuiamo i ciottoli camminando lungo i segmenti del contorno
+    for (let i = 0; i < pebbleCount; i++) {
+      // Distanza ideale per questo ciottolo lungo la linea
+      const targetDistance = (i / pebbleCount) * totalLength;
+      
+      // Troviamo il segmento specifico in cui cade la distanza
+      let accumulated = 0;
+      let segIdx = 0;
+      while (segIdx < segmentLengths.length && accumulated + segmentLengths[segIdx] <= targetDistance) {
+        accumulated += segmentLengths[segIdx];
+        segIdx++;
+      }
+      if (segIdx >= contour.length - 1) segIdx = contour.length - 2;
+
+      // Calcoliamo l'interpolazione (0.0 -> 1.0) sul segmento trovato
+      const t = (targetDistance - accumulated) / segmentLengths[segIdx];
+      const ptA = contour[segIdx];
+      const ptB = contour[segIdx + 1];
+
+      const baseX = THREE.MathUtils.lerp(ptA.x, ptB.x, t);
+      const baseZ = THREE.MathUtils.lerp(ptA.z, ptB.z, t);
+
+      // Aggiungiamo un leggero "disordine" deterministico
+      const offsetDist = (pseudoRandom(i) - 0.5) * 0.025; // Sfalsamento radiale
+      const randScale = 0.5 + pseudoRandom(i + 100) * 1.0;
+      const randRotX = pseudoRandom(i + 200) * Math.PI;
+      const randRotY = pseudoRandom(i + 300) * Math.PI;
+
+      // Coordinate globali: il contorno è nello spazio locale del laghetto, 
+      // quindi sommiamo this.pond.position
+      dummy.position.set(
+        this.pond.position.x + baseX + offsetDist,
+        this.sandTopY + 0.001, // Appoggiati esattamente sulla sabbia
+        this.pond.position.z + baseZ + offsetDist
+      );
+      
+      dummy.rotation.set(randRotX, randRotY, 0);
+      dummy.scale.setScalar(randScale);
+      
+      // Appiattiamo leggermente l'icosaedro per farlo sembrare levigato dall'acqua
+      dummy.scale.y *= 0.4;
+      
+      dummy.updateMatrix();
+      instancedPebbles.setMatrixAt(i, dummy.matrix);
+    }
+
+    this.group.add(instancedPebbles);
   }
 
   /**

@@ -17,6 +17,7 @@
  * ============================================================================
  */
 import * as THREE from 'three';
+import { MeshSurfaceSampler } from 'three/addons/math/MeshSurfaceSampler.js';
 import { createMatcapTexture } from '../utils/MatcapTextureFactory.js';
 import { serializeGeometryPositions, geometryFromPositions } from '../utils/GeometrySerializer.js';
 
@@ -82,30 +83,90 @@ export function createRock({
   // Il colore vero è "cotto" nella texture matcap, non in `material.color`
   // (che resta bianco di default): lo teniamo qui per poterlo serializzare.
   mesh.userData.color = color;
+
+  // --- GENERAZIONE DEL MUSCHIO ---
+  
+  // 1. Definiamo quanto muschio vogliamo in base alla grandezza della roccia
+  const mossCount = Math.floor(radius * 800); // Es. raggio 0.05 produrrà ~40 ciuffi
+  
+  if (mossCount > 0) {
+    // 2. Geometria e materiale del singolo ciuffo di muschio
+    const mossGeometry = new THREE.IcosahedronGeometry(0.004, 0);
+    // Un verde organico e desaturato per il muschio
+    const mossMaterial = new THREE.MeshMatcapMaterial({
+      matcap: createMatcapTexture(0x4a5d23), 
+      flatShading: true,
+    });
+
+    // 3. Creiamo l'InstancedMesh per le performance
+    const instancedMoss = new THREE.InstancedMesh(mossGeometry, mossMaterial, mossCount);
+    instancedMoss.receiveShadow = true;
+    instancedMoss.castShadow = true;
+
+    // 4. Inizializziamo il Sampler passandogli la mesh della roccia appena creata
+    const sampler = new MeshSurfaceSampler(mesh).build();
+    
+    // Variabili d'appoggio per evitare di allocare nuova memoria in ogni ciclo
+    const position = new THREE.Vector3();
+    const normal = new THREE.Vector3();
+    const dummy = new THREE.Object3D();
+
+    // 5. Ciclo di campionamento
+    for (let i = 0; i < mossCount; i++) {
+      // Estraiamo un punto casuale e la sua normale
+      sampler.sample(position, normal);
+
+      // Posizioniamo il dummy sul punto trovato
+      dummy.position.copy(position);
+      
+      // Orientiamo il muschio in modo che "esca" perpendicolarmente dalla roccia
+      dummy.lookAt(position.clone().add(normal));
+      
+      // Aggiungiamo un po' di variazione casuale per spezzare la ripetitività
+      dummy.rotateZ(Math.random() * Math.PI);
+      dummy.scale.setScalar(0.4 + Math.random() * 0.8);
+      
+      dummy.updateMatrix();
+      
+      // Salviamo la trasformazione nell'InstancedMesh
+      instancedMoss.setMatrixAt(i, dummy.matrix);
+    }
+
+    // 6. Agganciamo il muschio alla roccia (diventa "figlio" della roccia)
+    mesh.add(instancedMoss);
+  }
+
   return mesh;
 }
 
 /**
- * Cattura forma (vertici deformati), colore, posizione e rotazione di una
- * roccia già generata, in un oggetto JSON-serializzabile pronto per il
- * `SaveSystem` (Fase 3, GDD §2). Salvare i vertici finali invece dei soli
- * parametri di generazione garantisce un ripristino a pixel identico, dato
- * che la deformazione a rumore di `createRock` non è seedabile.
- *
+ * Cattura forma (vertici deformati), colore, posizione, rotazione e 
+ * la disposizione esatta del muschio di una roccia già generata.
  * @param {THREE.Mesh} rock Roccia creata da `createRock`.
  * @returns {Object} Stato serializzabile della roccia.
  */
 export function serializeRock(rock) {
-  return {
+  const data = {
     positions: serializeGeometryPositions(rock.geometry),
     color: rock.userData.color,
     position: rock.position.toArray(),
     rotation: rock.rotation.toArray().slice(0, 3),
   };
+
+  // Cerchiamo l'InstancedMesh (il muschio) tra i figli della roccia
+  const moss = rock.children.find((child) => child.isInstancedMesh);
+  if (moss) {
+    data.mossCount = moss.count;
+    // instanceMatrix.array è un Float32Array, lo convertiamo in un array standard per il JSON
+    data.mossMatrix = Array.from(moss.instanceMatrix.array);
+  }
+
+  return data;
 }
 
 /**
- * Ricostruisce una roccia a partire dallo stato prodotto da `serializeRock`.
+ * Ricostruisce una roccia a partire dallo stato prodotto da `serializeRock`,
+ * ripristinando in modo identico anche il muschio.
  * @param {Object} data
  * @returns {THREE.Mesh}
  */
@@ -115,12 +176,32 @@ export function deserializeRock(data) {
     matcap: createMatcapTexture(data.color),
     flatShading: true,
   });
-
   const mesh = new THREE.Mesh(geometry, material);
   mesh.position.fromArray(data.position);
   mesh.rotation.set(data.rotation[0], data.rotation[1], data.rotation[2]);
   mesh.receiveShadow = true;
   mesh.castShadow = true;
   mesh.userData.color = data.color;
+
+  // Ripristino del Muschio (se presente nel salvataggio)
+  if (data.mossCount && data.mossMatrix) {
+    const mossGeometry = new THREE.IcosahedronGeometry(0.004, 0);
+    const mossMaterial = new THREE.MeshMatcapMaterial({
+      matcap: createMatcapTexture(0x4a5d23), 
+      flatShading: true,
+    });
+    
+    const instancedMoss = new THREE.InstancedMesh(mossGeometry, mossMaterial, data.mossCount);
+    
+    // Iniettiamo l'array delle matrici salvato nel Float32Array dell'InstancedMesh
+    instancedMoss.instanceMatrix.array.set(data.mossMatrix);
+    instancedMoss.instanceMatrix.needsUpdate = true; // Diciamo alla GPU che i dati sono aggiornati
+    
+    instancedMoss.receiveShadow = true;
+    instancedMoss.castShadow = true;
+    
+    mesh.add(instancedMoss);
+  }
+
   return mesh;
 }
