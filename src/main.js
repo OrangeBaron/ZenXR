@@ -2,10 +2,12 @@
  * ============================================================================
  * ZenXR — main.js  (Entry Point dell'applicazione)
  * ============================================================================
- * Fase 2 + Fase 3/4/5: Core 3D, WebXR, posizionamento del giardino tramite
+ * Fase 2 + Fase 3/4/5/6: Core 3D, WebXR, posizionamento del giardino tramite
  * trigger/pinch, generazione procedurale (vasca a due zone con laghetto,
- * bonsai e rocce disposti casualmente ma sempre fuori dall'acqua) e
- * persistenza dello stato su LocalStorage tramite `/src/utils/SaveSystem.js`.
+ * bonsai e rocce disposti casualmente ma sempre fuori dall'acqua),
+ * persistenza dello stato su LocalStorage tramite `/src/utils/SaveSystem.js`
+ * e hand-tracking per la potatura delle foglie secche del bonsai tramite
+ * `/src/core/HandTrackingManager.js`.
  *
  * Responsabilità (Single Responsibility Principle):
  *   Questo file orchestra soltanto l'inizializzazione dei moduli core e
@@ -15,7 +17,7 @@
  *     - /src/entities/GardenBase.js (getState/ripristino laghetto+rocce+albero) [Fase 3/5]
  *     - /src/entities/PondGenerator.js (laghetto procedurale a "macchia")       [Fase 5]
  *     - /src/utils/SaveSystem.js    (persistenza LocalStorage)         [Fase 3]
- *     - /src/core/HandTrackingManager.js (input mani avanzato)         [Fase 6]
+ *     - /src/core/HandTrackingManager.js (input mani, potatura pinch)  [Fase 6]
  *     - /src/entities/KoiBoids.js, ...                                 [Fase 8+]
  *
  * Vincoli architetturali (GDD §7):
@@ -27,6 +29,8 @@ import GUI from 'lil-gui';
 import { SceneManager } from './core/SceneManager.js';
 import { XRManager } from './core/XRManager.js';
 import { XRInteractionManager } from './core/XRInteractionManager.js';
+import { HandTrackingManager } from './core/HandTrackingManager.js';
+import { HandOcclusionManager } from './core/HandOcclusionManager.js';
 import { StateManager } from './core/StateManager.js';
 import { PlacementPreview } from './entities/PlacementPreview.js';
 import { GardenBase } from './entities/GardenBase.js';
@@ -80,7 +84,7 @@ function createDebugGUI(sceneManager, placementPreview, garden, stateManager, on
       {
         mostra: () => {
           garden.group.position.set(0, 0, -1);
-          garden.group.quaternion.identity();
+          garden.group.rotation.set(0, Math.PI, 0);
           garden.group.visible = true;
         },
       },
@@ -164,12 +168,32 @@ function bootstrap() {
     onPlace: () => console.log('[ZenXR] Giardino posizionato sulla superficie reale.'),
   });
 
+  // Fase 6 (GDD §3/§4): mappa le mani dell'utente e gestisce il pinch delle
+  // foglie secche del bonsai. Ogni foglia potata notifica lo StateManager,
+  // che (tramite il listener sopra) fa scattare il debounce di salvataggio.
+  const handTrackingManager = new HandTrackingManager({
+    renderer: sceneManager.renderer,
+    scene: sceneManager.scene,
+    bonsai: garden.bonsai,
+    stateManager,
+  });
+
+  // Fase 6 (GDD §3): sfere di occlusione invisibili agganciate ai giunti
+  // delle mani, così le mani reali dell'utente coprono correttamente gli
+  // oggetti virtuali del giardino invece di finire sempre "dietro" di essi.
+  const handOcclusionManager = new HandOcclusionManager({
+    renderer: sceneManager.renderer,
+    scene: sceneManager.scene,
+  });
+
   removeBootOverlay();
 
   sceneManager.renderer.setAnimationLoop((_timestamp, frame) => {
     if (frame) {
       const pose = xrManager.getHitPose(frame);
       placementPreview.update(pose);
+      handTrackingManager.update();
+      handOcclusionManager.update();
     }
     sceneManager.render();
   });

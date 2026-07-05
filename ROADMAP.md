@@ -54,7 +54,7 @@ Questo documento definisce le fasi di sviluppo iterativo per il progetto ZenXR, 
 * Modificare `GardenBase.js` per gestire il nuovo layout dinamico: destinare circa un terzo (1/3) della vasca al laghetto e i restanti due terzi (2/3) all'area sabbiosa.
 * Assicurarsi che le posizioni, la forma del laghetto, le rocce e il bonsai siano generati sempre in punti casuali e coerenti con la nuova topologia (es. il bonsai non deve finire in acqua).
 
-## Fase 6: Hand-Tracking e Interazioni Base
+## ✅ Fase 6: Hand-Tracking e Interazioni Base
 
 **Obiettivo:** Abbandonare i controller e mappare le mani dell'utente.
 

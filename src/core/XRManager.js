@@ -33,7 +33,10 @@ export class XRManager {
     this.renderer.xr.setReferenceSpaceType('local-floor');
 
     this.button = ARButton.createButton(renderer, {
-      requiredFeatures: ['hit-test'],
+      // Fase 6 (GDD §3): l'app abbandona i controller standard a favore del
+      // solo hand-tracking, quindi 'hand-tracking' è obbligatoria — nessun
+      // percorso applicativo si aspetta più input da un controller fisico.
+      requiredFeatures: ['hit-test', 'hand-tracking'],
       optionalFeatures: ['dom-overlay'],
       domOverlay: { root: document.body },
     });
