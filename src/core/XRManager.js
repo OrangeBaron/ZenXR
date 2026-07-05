@@ -37,7 +37,7 @@ export class XRManager {
       // solo hand-tracking, quindi 'hand-tracking' è obbligatoria — nessun
       // percorso applicativo si aspetta più input da un controller fisico.
       requiredFeatures: ['hit-test', 'hand-tracking'],
-      optionalFeatures: ['dom-overlay'],
+      optionalFeatures: ['dom-overlay', 'anchors'],
       domOverlay: { root: document.body },
     });
     document.body.appendChild(this.button);

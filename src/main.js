@@ -161,7 +161,7 @@ function bootstrap() {
     },
   });
 
-  new XRInteractionManager({
+  const xrInteractionManager = new XRInteractionManager({
     renderer: sceneManager.renderer,
     placementPreview,
     targetGroup: garden.group,
@@ -192,6 +192,10 @@ function bootstrap() {
     if (frame) {
       const pose = xrManager.getHitPose(frame);
       placementPreview.update(pose);
+      
+      // Nutriamo l'InteractionManager col frame corrente e la posa rilevata
+      xrInteractionManager.update(frame, pose); 
+      
       handTrackingManager.update();
       handOcclusionManager.update();
     }
