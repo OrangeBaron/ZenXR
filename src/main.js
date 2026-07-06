@@ -144,8 +144,9 @@ async function bootstrap() {
   function startGardenPhysics() {
     if (physicsReady) return;
     physicsReady = true;
-    physicsManager.addStaticFloor(garden.sand); // Rende la sabbia solida
-    garden.rocks.forEach(rock => physicsManager.addRock(rock)); // Fa cadere le rocce
+    physicsManager.addStaticFloor(garden.sand);
+    physicsManager.addStaticBonsai(garden.bonsai);
+    garden.rocks.forEach(rock => physicsManager.addRock(rock));
   }
 
   // Fase 3 (GDD §2): lo StateManager fa solo da "campanello" (nessun I/O,

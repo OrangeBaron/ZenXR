@@ -106,25 +106,15 @@ export class HandTrackingManager {
       if (!point) continue;
       this._pinchAnchors.get(hand).position.copy(point);
 
-      // --- NUOVO: Clamping delle rocce in mano (Acquario invisibile) ---
+      // --- Spostamento rocce afferrate (Acquario invisibile gestito da Rapier) ---
       if (this._heldRocks.has(hand)) {
         const rock = this._heldRocks.get(hand);
         
-        // Convertiamo il punto della mano in coordinate locali del giardino
-        const localPoint = point.clone();
-        this.garden.group.worldToLocal(localPoint);
-
-        // Applichiamo i limiti per non farla uscire dalla vasca
-        const margin = 0.04; // margine di sicurezza dai bordi
-        const halfWidth = (this.garden.width / 2) - margin;
-        const halfDepth = (this.garden.depth / 2) - margin;
-
-        localPoint.x = THREE.MathUtils.clamp(localPoint.x, -halfWidth, halfWidth);
-        localPoint.y = Math.max(localPoint.y, this.garden.sandTopY + 0.02); // Non sfonda la sabbia
-        localPoint.z = THREE.MathUtils.clamp(localPoint.z, -halfDepth, halfDepth);
-
-        // Aggiorniamo la posizione della roccia
-        rock.position.copy(localPoint);
+        // Diciamo al motore fisico dove si trova la nostra mano. Rapier applicherà 
+        // le forze necessarie per arrivarci, scontrandosi con bonsai e muri.
+        if (this.physicsManager) {
+          this.physicsManager.moveGrabbedRock(rock, point);
+        }
       }
     }
   }
@@ -219,12 +209,11 @@ export class HandTrackingManager {
     // Priorità 2: Rocce
     const rock = this._findClosestRockNear(pinchPoint);
     if (rock) {
-      // NOTA: rimosso anchor.attach(rock). La roccia resta nel garden.group!
       this._heldRocks.set(hand, rock);
       
-      // Sospende la gravità mentre è in mano
+      // Comunica alla fisica di abilitare la modalità "presa a velocità"
       if (this.physicsManager) {
-        this.physicsManager.setRockKinematic(rock, true);
+        this.physicsManager.setRockGrabbed(rock, true);
       }
     }
   }
@@ -248,14 +237,11 @@ export class HandTrackingManager {
     if (rock) {
       this._heldRocks.delete(hand);
       
-      // NOTA: rimosso this.garden.group.attach(rock) perché non l'abbiamo mai tolta
-      
-      // Riattiviamo la fisica
+      // Riattiviamo la gravità e lo stato normale
       if (this.physicsManager) {
-        this.physicsManager.setRockKinematic(rock, false);
+        this.physicsManager.setRockGrabbed(rock, false);
       }
       
-      // Notifichiamo il salvataggio
       this.stateManager?.notifyChange({ action: 'rock_moved' });
     }
   }
