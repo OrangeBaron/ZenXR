@@ -58,15 +58,17 @@ export class HandTrackingManager {
    * @param {THREE.Group} options.bonsai Radice del bonsai (`GardenBase.bonsai`) in cui cercare le foglie.
    * @param {import('./StateManager.js').StateManager} [options.stateManager] Notificato quando una foglia viene potata.
    */
-  constructor({ renderer, scene, bonsai, stateManager }) {
+  constructor({ renderer, scene, bonsai, garden, stateManager, leafFallManager, physicsManager }) {
     this.renderer = renderer;
     this.scene = scene;
     this.bonsai = bonsai;
+    this.garden = garden;
     this.stateManager = stateManager;
+    this.leafFallManager = leafFallManager;
+    this.physicsManager = physicsManager;
 
-    /** @type {Map<THREE.Group, THREE.Object3D>} Foglia attualmente in mano, per gruppo-mano. */
     this._heldLeaves = new Map();
-    /** @type {Map<THREE.Group, THREE.Group>} Punto di contatto del pinch, per gruppo-mano. */
+    this._heldRocks = new Map();
     this._pinchAnchors = new Map();
 
     this.hands = [];
@@ -103,6 +105,27 @@ export class HandTrackingManager {
       const point = this._getPinchPoint(hand);
       if (!point) continue;
       this._pinchAnchors.get(hand).position.copy(point);
+
+      // --- NUOVO: Clamping delle rocce in mano (Acquario invisibile) ---
+      if (this._heldRocks.has(hand)) {
+        const rock = this._heldRocks.get(hand);
+        
+        // Convertiamo il punto della mano in coordinate locali del giardino
+        const localPoint = point.clone();
+        this.garden.group.worldToLocal(localPoint);
+
+        // Applichiamo i limiti per non farla uscire dalla vasca
+        const margin = 0.04; // margine di sicurezza dai bordi
+        const halfWidth = (this.garden.width / 2) - margin;
+        const halfDepth = (this.garden.depth / 2) - margin;
+
+        localPoint.x = THREE.MathUtils.clamp(localPoint.x, -halfWidth, halfWidth);
+        localPoint.y = Math.max(localPoint.y, this.garden.sandTopY + 0.02); // Non sfonda la sabbia
+        localPoint.z = THREE.MathUtils.clamp(localPoint.z, -halfDepth, halfDepth);
+
+        // Aggiorniamo la posizione della roccia
+        rock.position.copy(localPoint);
+      }
     }
   }
 
@@ -156,46 +179,85 @@ export class HandTrackingManager {
   }
 
   /**
-   * All'inizio di un pinch, verifica se il punto di contatto colpisce una
-   * foglia secca; in caso affermativo la stacca dal ramo e la riattacca
-   * all'anchor di pinch di questa mano (mantenendone la trasformazione
-   * mondiale tramite `attach`), che `update()` terrà sincronizzato sulle
-   * dita finché il pinch resta attivo.
-   *
-   * @param {THREE.Group} hand
+   * Cerca la roccia più vicina al punto di pinch.
+   * Raggio leggermente più ampio rispetto alle foglie.
    */
+  _findClosestRockNear(point) {
+    if (!this.garden || !this.garden.rocks) return null;
+    let closestRock = null;
+    let closestDistanceSq = 0.08 * 0.08; 
+    const rockWorldPosition = new THREE.Vector3();
+
+    for (const rock of this.garden.rocks) {
+      rock.getWorldPosition(rockWorldPosition);
+      const distanceSq = rockWorldPosition.distanceToSquared(point);
+      if (distanceSq < closestDistanceSq) {
+        closestDistanceSq = distanceSq;
+        closestRock = rock;
+      }
+    }
+    return closestRock;
+  }
+
   _handlePinchStart(hand) {
-    if (this._heldLeaves.has(hand)) return;
+    // Ignora se la mano ha già qualcosa
+    if (this._heldLeaves.has(hand) || this._heldRocks.has(hand)) return;
 
     const pinchPoint = this._getPinchPoint(hand);
     if (!pinchPoint) return;
 
+    // Priorità 1: Foglie
     const leaf = this._findDryLeafNear(pinchPoint);
-    if (!leaf) return;
+    if (leaf) {
+      const anchor = this._pinchAnchors.get(hand);
+      anchor.position.copy(pinchPoint);
+      anchor.attach(leaf);
+      this._heldLeaves.set(hand, leaf);
+      return;
+    }
 
-    const anchor = this._pinchAnchors.get(hand);
-    anchor.position.copy(pinchPoint);
-    anchor.attach(leaf); // riparenta preservando la trasformazione mondiale corrente
-
-    this._heldLeaves.set(hand, leaf);
+    // Priorità 2: Rocce
+    const rock = this._findClosestRockNear(pinchPoint);
+    if (rock) {
+      // NOTA: rimosso anchor.attach(rock). La roccia resta nel garden.group!
+      this._heldRocks.set(hand, rock);
+      
+      // Sospende la gravità mentre è in mano
+      if (this.physicsManager) {
+        this.physicsManager.setRockKinematic(rock, true);
+      }
+    }
   }
 
-  /**
-   * Al rilascio del pinch, la foglia in mano (se presente) scompare: viene
-   * rimossa dalla scena e la sua geometria/materiale vengono liberati. La
-   * fisica per farla cadere a terra arriverà in Fase 7 — qui basta che
-   * scompaia (GDD §3).
-   *
-   * @param {THREE.Group} hand
-   */
   _handlePinchEnd(hand) {
+    // 1. Gestione rilascio foglia
     const leaf = this._heldLeaves.get(hand);
-    if (!leaf) return;
+    if (leaf) {
+      this._heldLeaves.delete(hand);
+      if (this.leafFallManager) {
+        this.leafFallManager.addFallingLeaf(leaf);
+      } else {
+        this._destroyLeaf(leaf);
+      }
+      this.stateManager?.notifyChange({ action: 'leaf_pruned' });
+      return;
+    }
 
-    this._heldLeaves.delete(hand);
-    this._destroyLeaf(leaf);
-
-    this.stateManager?.notifyChange({ action: 'leaf_pruned' });
+    // 2. Gestione rilascio roccia
+    const rock = this._heldRocks.get(hand);
+    if (rock) {
+      this._heldRocks.delete(hand);
+      
+      // NOTA: rimosso this.garden.group.attach(rock) perché non l'abbiamo mai tolta
+      
+      // Riattiviamo la fisica
+      if (this.physicsManager) {
+        this.physicsManager.setRockKinematic(rock, false);
+      }
+      
+      // Notifichiamo il salvataggio
+      this.stateManager?.notifyChange({ action: 'rock_moved' });
+    }
   }
 
   /** Rilascia forzatamente (senza notificare lo stato) tutte le foglie ancora in mano. */

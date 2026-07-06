@@ -61,7 +61,7 @@ Questo documento definisce le fasi di sviluppo iterativo per il progetto ZenXR, 
 * Implementare `HandTrackingManager.js` per gestire i bounding box dei polpastrelli.
 * Abilitare il "pinch" per pizzicare le foglie secche del bonsai e rimuoverle.
 
-## Fase 7: Fisica e Stone Balancing
+## ✅ Fase 7: Fisica e Stone Balancing
 
 **Obiettivo:** Dare peso e presenza agli oggetti, stimolando i sensi.
 

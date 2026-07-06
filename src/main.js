@@ -35,6 +35,8 @@ import { StateManager } from './core/StateManager.js';
 import { PlacementPreview } from './entities/PlacementPreview.js';
 import { GardenBase } from './entities/GardenBase.js';
 import { loadGardenState, saveGardenState, clearGardenState } from './utils/SaveSystem.js';
+import { PhysicsManager } from './core/PhysicsManager.js';
+import { LeafFallManager } from './core/LeafFallManager.js';
 
 /** Ritardo (ms) del debounce fra una notifica di modifica e il salvataggio effettivo. */
 const SAVE_DEBOUNCE_MS = 1000;
@@ -86,6 +88,7 @@ function createDebugGUI(sceneManager, placementPreview, garden, stateManager, on
           garden.group.position.set(0, 0, -1);
           garden.group.rotation.set(0, Math.PI, 0);
           garden.group.visible = true;
+          startGardenPhysics();
         },
       },
       'mostra'
@@ -115,10 +118,14 @@ function createDebugGUI(sceneManager, placementPreview, garden, stateManager, on
  * posizionamento, giardino procedurale e pannello di debug, poi avvia
  * l'animation loop.
  */
-function bootstrap() {
-  console.log('%c⛩️ ZenXR — Core 3D / WebXR / Giardino procedurale', 'font-weight:bold;color:#8fbf9f');
-
+async function bootstrap() {
+  console.log('%c🌱 ZenXR – Core 3D / WebXR / Giardino procedurale', 'font-weight:bold;color:#8fbf9f');
+  
   const sceneManager = new SceneManager();
+  
+  // 1. Inizializziamo il motore fisico prima di avviare il loop
+  const physicsManager = new PhysicsManager();
+  await physicsManager.init();
 
   const placementPreview = new PlacementPreview();
   sceneManager.scene.add(placementPreview.mesh);
@@ -131,6 +138,14 @@ function bootstrap() {
   sceneManager.scene.add(garden.group);
   if (!savedState) {
     saveGardenState(garden.getState());
+  }
+
+  let physicsReady = false;
+  function startGardenPhysics() {
+    if (physicsReady) return;
+    physicsReady = true;
+    physicsManager.addStaticFloor(garden.sand); // Rende la sabbia solida
+    garden.rocks.forEach(rock => physicsManager.addRock(rock)); // Fa cadere le rocce
   }
 
   // Fase 3 (GDD §2): lo StateManager fa solo da "campanello" (nessun I/O,
@@ -165,7 +180,16 @@ function bootstrap() {
     renderer: sceneManager.renderer,
     placementPreview,
     targetGroup: garden.group,
-    onPlace: () => console.log('[ZenXR] Giardino posizionato sulla superficie reale.'),
+    onPlace: () => {
+      console.log('[ZenXR] Giardino posizionato sulla superficie reale.');
+      startGardenPhysics();
+    }
+  });
+
+  // --- INIZIALIZZA IL LEAF FALL MANAGER ---
+  const leafFallManager = new LeafFallManager({
+    scene: sceneManager.scene,
+    garden: garden
   });
 
   // Fase 6 (GDD §3/§4): mappa le mani dell'utente e gestisce il pinch delle
@@ -175,7 +199,10 @@ function bootstrap() {
     renderer: sceneManager.renderer,
     scene: sceneManager.scene,
     bonsai: garden.bonsai,
+    garden: garden,
     stateManager,
+    leafFallManager,
+    physicsManager: physicsManager
   });
 
   // Fase 6 (GDD §3): sfere di occlusione invisibili agganciate ai giunti
@@ -189,22 +216,29 @@ function bootstrap() {
   removeBootOverlay();
 
   sceneManager.renderer.setAnimationLoop((_timestamp, frame) => {
+    // Estraiamo la pose dal frame WebXR
+    let pose = null;
     if (frame) {
-      const pose = xrManager.getHitPose(frame);
+      pose = xrManager.getHitPose(frame); // Salviamo il risultato nella variabile pose
       placementPreview.update(pose);
-      
-      // Nutriamo l'InteractionManager col frame corrente e la posa rilevata
-      xrInteractionManager.update(frame, pose); 
-      
+      xrInteractionManager.update(frame, pose);         
       handTrackingManager.update();
       handOcclusionManager.update();
     }
+    
+    physicsManager.update();
+    
+    // Passiamo la pose aggiornata al manager delle foglie
+    leafFallManager.update(pose); 
+    
     sceneManager.render();
   });
 }
 
+// L'avvio di bootstrap ora gestisce la promise, anche se possiamo 
+// semplicemente invocarla essendo il punto di ingresso
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', bootstrap, { once: true });
+  document.addEventListener('DOMContentLoaded', () => bootstrap(), { once: true });
 } else {
   bootstrap();
 }
