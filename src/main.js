@@ -1,29 +1,14 @@
 /**
- * ============================================================================
- * ZenXR — main.js  (Entry Point dell'applicazione)
- * ============================================================================
- * Fase 2 + Fase 3/4/5/6: Core 3D, WebXR, posizionamento del giardino tramite
- * trigger/pinch, generazione procedurale (vasca a due zone con laghetto,
- * bonsai e rocce disposti casualmente ma sempre fuori dall'acqua),
- * persistenza dello stato su LocalStorage tramite `/src/utils/SaveSystem.js`
- * e hand-tracking per la potatura delle foglie secche del bonsai tramite
- * `/src/core/HandTrackingManager.js`.
+ * Punto di ingresso dell'applicazione ZenXR. Responsabilità unica: orchestrare
+ * il bootstrap e l'animation loop, inizializzando in ordine i moduli core
+ * (scena, fisica, WebXR, interazione, hand-tracking, persistenza) e
+ * collegandoli tra loro tramite callback ed eventi. Non contiene logica di
+ * gioco, generazione procedurale o (de)serializzazione dello stato: queste
+ * responsabilità sono delegate ai moduli dedicati importati sotto
+ * (`GardenBase`, `PondGenerator`, `SaveSystem`, `HandTrackingManager`, ecc.).
  *
- * Responsabilità (Single Responsibility Principle):
- *   Questo file orchestra soltanto l'inizializzazione dei moduli core e
- *   l'animation loop. NON contiene logica di gioco, generazione procedurale
- *   o (de)serializzazione dello stato: quella arriverà/è arrivata nelle fasi
- *   successive tramite moduli dedicati:
- *     - /src/entities/GardenBase.js (getState/ripristino laghetto+rocce+albero) [Fase 3/5]
- *     - /src/entities/PondGenerator.js (laghetto procedurale a "macchia")       [Fase 5]
- *     - /src/utils/SaveSystem.js    (persistenza LocalStorage)         [Fase 3]
- *     - /src/core/HandTrackingManager.js (input mani, potatura pinch)  [Fase 6]
- *     - /src/entities/KoiBoids.js, ...                                 [Fase 8+]
- *
- * Vincoli architetturali (GDD §7):
- *   - Puro Vanilla JS (ES6+). Nessun framework UI.
- *   - Nessun bundler: import "bare" risolti dalla Import Map in index.html.
- * ============================================================================
+ * Architettura: Vanilla JS (ES6+) senza framework UI né bundler; gli import
+ * "bare" sono risolti tramite Import Map in `index.html`.
  */
 import GUI from 'lil-gui';
 import { SceneManager } from './core/SceneManager.js';
@@ -79,7 +64,7 @@ function createDebugGUI(sceneManager, placementPreview, garden, stateManager, on
 
   // Affordance di debug per testare la generazione procedurale su desktop,
   // dove non è disponibile alcun grilletto/pinch per innescare l'evento
-  // 'select' della sessione XR (utile finché non si testa in visore).
+  // 'select' della sessione XR.
   const gardenFolder = gui.addFolder('Giardino (debug desktop)');
   gardenFolder
     .add(
@@ -95,16 +80,14 @@ function createDebugGUI(sceneManager, placementPreview, garden, stateManager, on
     )
     .name('Mostra al centro');
 
-  // Fase 4 (GDD §2): in futuro questa azione sarà sostituita dal rituale
-  // fisico del gong ("colpirlo 3 volte per ripulire il giardino"); per ora,
-  // finché l'hand-tracking non è disponibile, è un bottone di debug.
+  // Azione di debug in sostituzione del futuro rituale fisico del gong
+  // ("colpirlo 3 volte per ripulire il giardino").
   const memoryFolder = gui.addFolder('Memoria');
   memoryFolder
     .add({ reset: onResetMemory }, 'reset')
     .name('Reset memoria giardino');
 
-  // In attesa dell'hand-tracking (Fase 4), questo bottone simula
-  // un'interazione con un oggetto del giardino per verificare che il
+  // Simula un'interazione con un oggetto del giardino per verificare che il
   // debounce e il salvataggio dinamico via StateManager funzionino.
   memoryFolder
     .add({ simula: () => stateManager.notifyChange() }, 'simula')
@@ -122,17 +105,16 @@ async function bootstrap() {
   console.log('%c🌱 ZenXR – Core 3D / WebXR / Giardino procedurale', 'font-weight:bold;color:#8fbf9f');
   
   const sceneManager = new SceneManager();
-  
-  // 1. Inizializziamo il motore fisico prima di avviare il loop
+
   const physicsManager = new PhysicsManager();
   await physicsManager.init();
 
   const placementPreview = new PlacementPreview();
   sceneManager.scene.add(placementPreview.mesh);
 
-  // Fase 3 (GDD §2): al primo avvio non c'è nulla da ripristinare, quindi il
-  // giardino nasce dalla generazione procedurale casuale e viene salvato
-  // subito, per non rigenerare rocce/albero diversi a ogni ricarica.
+  // Al primo avvio non c'è nulla da ripristinare, quindi il giardino nasce
+  // dalla generazione procedurale casuale e viene salvato subito, per non
+  // rigenerare rocce/albero diversi a ogni ricarica.
   const savedState = loadGardenState();
   const garden = new GardenBase({ savedState });
   sceneManager.scene.add(garden.group);
@@ -149,10 +131,9 @@ async function bootstrap() {
     garden.rocks.forEach(rock => physicsManager.addRock(rock));
   }
 
-  // Fase 3 (GDD §2): lo StateManager fa solo da "campanello" (nessun I/O,
-  // nessun THREE.js) — è main.js a decidere come reagire alle notifiche di
-  // modifica, qui con un debounce per non scrivere su LocalStorage a ogni
-  // frame quando in futuro le interazioni (Fase 4+) saranno continue.
+  // Lo StateManager fa solo da "campanello" (nessun I/O, nessun THREE.js):
+  // è main.js a decidere come reagire alle notifiche di modifica, qui con
+  // un debounce per non scrivere su LocalStorage a ogni interazione.
   const stateManager = new StateManager();
   let saveDebounceTimer = null;
   stateManager.onChange(() => {
@@ -187,15 +168,14 @@ async function bootstrap() {
     }
   });
 
-  // --- INIZIALIZZA IL LEAF FALL MANAGER ---
   const leafFallManager = new LeafFallManager({
     scene: sceneManager.scene,
     garden: garden
   });
 
-  // Fase 6 (GDD §3/§4): mappa le mani dell'utente e gestisce il pinch delle
-  // foglie secche del bonsai. Ogni foglia potata notifica lo StateManager,
-  // che (tramite il listener sopra) fa scattare il debounce di salvataggio.
+  // Mappa le mani dell'utente e gestisce il pinch delle foglie secche del
+  // bonsai. Ogni foglia potata notifica lo StateManager, che (tramite il
+  // listener sopra) fa scattare il debounce di salvataggio.
   const handTrackingManager = new HandTrackingManager({
     renderer: sceneManager.renderer,
     scene: sceneManager.scene,
@@ -206,9 +186,9 @@ async function bootstrap() {
     physicsManager: physicsManager
   });
 
-  // Fase 6 (GDD §3): sfere di occlusione invisibili agganciate ai giunti
-  // delle mani, così le mani reali dell'utente coprono correttamente gli
-  // oggetti virtuali del giardino invece di finire sempre "dietro" di essi.
+  // Sfere di occlusione invisibili agganciate ai giunti delle mani, così le
+  // mani reali dell'utente coprono correttamente gli oggetti virtuali del
+  // giardino invece di finire sempre "dietro" di essi.
   const handOcclusionManager = new HandOcclusionManager({
     renderer: sceneManager.renderer,
     scene: sceneManager.scene,
@@ -217,27 +197,25 @@ async function bootstrap() {
   removeBootOverlay();
 
   sceneManager.renderer.setAnimationLoop((_timestamp, frame) => {
-    // Estraiamo la pose dal frame WebXR
     let pose = null;
     if (frame) {
-      pose = xrManager.getHitPose(frame); // Salviamo il risultato nella variabile pose
+      pose = xrManager.getHitPose(frame);
       placementPreview.update(pose);
-      xrInteractionManager.update(frame, pose);         
+      xrInteractionManager.update(frame, pose);
       handTrackingManager.update();
       handOcclusionManager.update();
     }
-    
+
     physicsManager.update();
-    
-    // Passiamo la pose aggiornata al manager delle foglie
-    leafFallManager.update(pose); 
-    
+    leafFallManager.update(pose);
+
     sceneManager.render();
   });
 }
 
-// L'avvio di bootstrap ora gestisce la promise, anche se possiamo 
-// semplicemente invocarla essendo il punto di ingresso
+// Se lo script viene eseguito prima del parsing completo del DOM, l'avvio
+// va posticipato a DOMContentLoaded; altrimenti l'evento è già passato e
+// bootstrap() va invocato subito.
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', () => bootstrap(), { once: true });
 } else {

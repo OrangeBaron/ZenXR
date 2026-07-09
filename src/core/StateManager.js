@@ -1,20 +1,17 @@
 /**
- * ============================================================================
- * StateManager.js
- * ============================================================================
- * Responsabilità unica (SRP): fare da "campanello" centrale per segnalare che
- * qualcosa nel giardino è cambiato e potrebbe dover essere persistito.
+ * Responsabilità unica (SRP): canale di eventi centrale per segnalare che lo
+ * stato del giardino è cambiato e potrebbe richiedere persistenza.
  *
- * Non sa COSA è cambiato, non conosce THREE.js e non si occupa di leggere o
- * scrivere su LocalStorage: quello è compito di `GardenBase.getState()`
- * (costruzione dello stato) e `/src/utils/SaveSystem.js` (I/O). Questa classe
- * si limita a distribuire un evento `change` a chiunque sia in ascolto.
+ * Non conosce la natura del cambiamento, non dipende da THREE.js e non
+ * gestisce la lettura/scrittura su LocalStorage: quello è compito di
+ * `GardenBase.getState()` (costruzione dello stato) e
+ * `/src/utils/SaveSystem.js` (I/O). Si limita a distribuire un evento
+ * `change` a chiunque sia in ascolto.
  *
- * Uso previsto (Fase 4+): i futuri sistemi di interazione (spostamento
- * rocce, potatura del bonsai, hand-tracking, ...) chiameranno `notifyChange()`
- * ogni volta che modificano un oggetto del giardino. `main.js` ascolta questi
- * eventi e decide quando/come salvare (tipicamente con un debounce).
- * ============================================================================
+ * I sistemi di interazione (spostamento rocce, potatura del bonsai,
+ * hand-tracking, ...) chiamano `notifyChange()` ogni volta che modificano un
+ * oggetto del giardino; `main.js` ascolta questi eventi e decide quando/come
+ * salvare (tipicamente con un debounce).
  */
 export class StateManager extends EventTarget {
   /**

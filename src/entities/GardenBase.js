@@ -1,27 +1,22 @@
 /**
- * ============================================================================
- * GardenBase.js
- * ============================================================================
- * Responsabilità unica (SRP): costruire proceduralmente la base fisica del
- * giardino zen — vasca, zona sabbiosa, recinto di bambù stilizzato e
- * laghetto — e comporla con il bonsai (BonsaiGenerator.js), un primo set di
- * rocce (RockGenerator.js) e il laghetto (PondGenerator.js), tutti disposti
- * in posizione casuale ma sempre coerenti con la nuova topologia a due zone
- * introdotta in Fase 5 (GDD §4): laghetto e bonsai/rocce non si sovrappongono
- * mai, quindi nessun elemento "solido" finisce mai in acqua.
+ * Costruisce proceduralmente la base fisica del giardino zen — vasca, zona
+ * sabbiosa, recinto di bambù stilizzato e laghetto — e la compone con il
+ * bonsai (BonsaiGenerator.js), un primo set di rocce (RockGenerator.js) e il
+ * laghetto (PondGenerator.js), tutti disposti in posizione casuale ma sempre
+ * coerenti con la topologia a due zone: laghetto e bonsai/rocce non si
+ * sovrappongono mai, quindi nessun elemento "solido" finisce in acqua.
  *
  * Tutti gli elementi sono figli di `this.group`, così l'intero giardino può
  * essere spostato in blocco quando viene posizionato sulla superficie reale
  * (vedi XRInteractionManager.js). Il gruppo nasce nascosto: diventa visibile
  * solo dopo il primo posizionamento.
  *
- * NON gestisce: input, fisica (Fase 6) o hit-testing.
- * ============================================================================
+ * Non gestisce input, fisica o hit-testing.
  */
 import * as THREE from 'three';
 import { createRock, serializeRock, deserializeRock } from './RockGenerator.js';
 import { createBonsai, serializeBonsai, deserializeBonsai } from './BonsaiGenerator.js';
-import { createPond, serializePond, deserializePond, isInsidePond, POND_SURFACE_LIFT } from './PondGenerator.js';
+import { createPond, serializePond, deserializePond, isInsidePond, POND_SURFACE_LIFT, generatePondPebbles } from './PondGenerator.js';
 import { createMatcapTexture } from '../utils/MatcapTextureFactory.js';
 import {
   GARDEN_WIDTH,
@@ -31,18 +26,24 @@ import {
   POND_AREA_RATIO,
 } from '../utils/GardenLayout.js';
 
-// Distanza extra (metri) da tenere dalla riva del laghetto quando si scelgono
-// punti "asciutti" per bonsai e rocce (Fase 5, GDD §4): evita che gli oggetti
+// Distanza extra (metri) da tenere dalla riva del laghetto quando si
+// scelgono punti "asciutti" per bonsai e rocce: evita che gli oggetti
 // tocchino visivamente il bordo dell'acqua.
 const POND_SHORE_MARGIN = 0.03;
 
+/**
+ * Base fisica del giardino zen: gestisce costruzione, disposizione casuale
+ * degli elementi e persistenza dello stato tramite `getState()`.
+ */
 export class GardenBase {
   /**
+   * Costruisce la vasca con tutti i suoi elementi, generandoli casualmente
+   * oppure ripristinandoli da uno stato salvato.
    * @param {Object} [options]
    * @param {number} [options.width=GARDEN_WIDTH] Larghezza della vasca in metri.
    * @param {number} [options.depth=GARDEN_DEPTH] Profondità della vasca in metri.
    * @param {number} [options.rockCount=8] Numero di rocce da disporre inizialmente (ignorato se `savedState` è presente).
-   * @param {Object|null} [options.savedState=null] Stato prodotto da `getState()` e riletto da `SaveSystem` (Fase 3, GDD §2):
+   * @param {Object|null} [options.savedState=null] Stato prodotto da `getState()` e riletto da `SaveSystem`:
    *   se presente, rocce e albero vengono ripristinati esattamente invece di essere rigenerati casualmente.
    */
   constructor({ width = GARDEN_WIDTH, depth = GARDEN_DEPTH, rockCount = 8, savedState = null } = {}) {
@@ -63,7 +64,9 @@ export class GardenBase {
       this.pond = this._createPondLayout();
     }
     this.group.add(this.pond);
-    this._addPondPebbles();
+
+    const pebbles = generatePondPebbles(this.pond, this.sandTopY);
+    if (pebbles) this.group.add(pebbles);
 
     if (savedState?.bonsai) {
       this.bonsai = deserializeBonsai(savedState.bonsai);
@@ -83,7 +86,7 @@ export class GardenBase {
   /**
    * Cattura lo stato corrente di laghetto, rocce e albero (forma, colore,
    * posizione e rotazione) in un oggetto JSON-serializzabile pronto per
-   * `SaveSystem` (Fase 3/5, GDD §2).
+   * `SaveSystem`.
    * @returns {Object}
    */
   getState() {
@@ -164,10 +167,10 @@ export class GardenBase {
   }
 
   /**
-   * Decide la "zona" del laghetto (Fase 5, GDD §4): la vasca viene ancorata
-   * a un angolo scelto a caso, così l'acqua tocca davvero il bordo della
-   * vasca (due lati del laghetto corrono lungo le due pareti dell'angolo,
-   * vedi `PondGenerator.js`) invece di restarne staccata al centro.
+   * Decide la "zona" del laghetto: la vasca viene ancorata a un angolo
+   * scelto a caso, così l'acqua tocca davvero il bordo della vasca (due lati
+   * del laghetto corrono lungo le due pareti dell'angolo, vedi
+   * `PondGenerator.js`) invece di restarne staccata al centro.
    *
    * Il laghetto è geometricamente un quarto di ellisse (raggi `radiusX`,
    * `radiusZ`, angolo=vertice sull'angolo della vasca) con bordo interno
@@ -197,100 +200,11 @@ export class GardenBase {
   }
 
   /**
-   * Genera e posiziona i ciottoli lungo il confine irregolare del laghetto.
-   * Sfrutta il contorno già calcolato e salvato dal PondGenerator, unendolo a una
-   * funzione pseudo-casuale: in questo modo i ciottoli si riposizionano
-   * in modo identico al caricamento del salvataggio senza gravare sul SaveSystem.
-   */
-  _addPondPebbles() {
-    const contour = this.pond.userData.contour;
-    if (!contour || contour.length < 2) return;
-
-    // Funzione hash per ottenere una "casualità" riproducibile e sempre uguale
-    const pseudoRandom = (seed) => {
-      const x = Math.sin(seed * 12.9898) * 43758.5453;
-      return x - Math.floor(x);
-    };
-
-    // 1. Geometria e Materiale (piccoli icosaedri low-poly)
-    const pebbleGeometry = new THREE.IcosahedronGeometry(0.02, 0);
-    const pebbleMaterial = new THREE.MeshMatcapMaterial({
-      matcap: createMatcapTexture(0x6e6b66), // Grigio pietra di fiume
-      flatShading: true,
-    });
-
-    // 2. Calcoliamo la lunghezza totale del perimetro frastagliato
-    let totalLength = 0;
-    const segmentLengths = [];
-    for (let i = 0; i < contour.length - 1; i++) {
-      const dist = Math.hypot(contour[i+1].x - contour[i].x, contour[i+1].z - contour[i].z);
-      totalLength += dist;
-      segmentLengths.push(dist);
-    }
-
-    // Vogliamo circa un ciottolo ogni 3 centimetri lungo il bordo
-    const pebbleCount = Math.floor(totalLength / 0.03);
-    const instancedPebbles = new THREE.InstancedMesh(pebbleGeometry, pebbleMaterial, pebbleCount);
-    instancedPebbles.receiveShadow = true;
-    instancedPebbles.castShadow = true;
-
-    const dummy = new THREE.Object3D();
-    
-    // 3. Distribuiamo i ciottoli camminando lungo i segmenti del contorno
-    for (let i = 0; i < pebbleCount; i++) {
-      // Distanza ideale per questo ciottolo lungo la linea
-      const targetDistance = (i / pebbleCount) * totalLength;
-      
-      // Troviamo il segmento specifico in cui cade la distanza
-      let accumulated = 0;
-      let segIdx = 0;
-      while (segIdx < segmentLengths.length && accumulated + segmentLengths[segIdx] <= targetDistance) {
-        accumulated += segmentLengths[segIdx];
-        segIdx++;
-      }
-      if (segIdx >= contour.length - 1) segIdx = contour.length - 2;
-
-      // Calcoliamo l'interpolazione (0.0 -> 1.0) sul segmento trovato
-      const t = (targetDistance - accumulated) / segmentLengths[segIdx];
-      const ptA = contour[segIdx];
-      const ptB = contour[segIdx + 1];
-
-      const baseX = THREE.MathUtils.lerp(ptA.x, ptB.x, t);
-      const baseZ = THREE.MathUtils.lerp(ptA.z, ptB.z, t);
-
-      // Aggiungiamo un leggero "disordine" deterministico
-      const offsetDist = (pseudoRandom(i) - 0.5) * 0.025; // Sfalsamento radiale
-      const randScale = 0.5 + pseudoRandom(i + 100) * 1.0;
-      const randRotX = pseudoRandom(i + 200) * Math.PI;
-      const randRotY = pseudoRandom(i + 300) * Math.PI;
-
-      // Coordinate globali: il contorno è nello spazio locale del laghetto, 
-      // quindi sommiamo this.pond.position
-      dummy.position.set(
-        this.pond.position.x + baseX + offsetDist,
-        this.sandTopY + 0.001, // Appoggiati esattamente sulla sabbia
-        this.pond.position.z + baseZ + offsetDist
-      );
-      
-      dummy.rotation.set(randRotX, randRotY, 0);
-      dummy.scale.setScalar(randScale);
-      
-      // Appiattiamo leggermente l'icosaedro per farlo sembrare levigato dall'acqua
-      dummy.scale.y *= 0.4;
-      
-      dummy.updateMatrix();
-      instancedPebbles.setMatrixAt(i, dummy.matrix);
-    }
-
-    this.group.add(instancedPebbles);
-  }
-
-  /**
    * Campiona un punto casuale "asciutto" all'interno della vasca (fuori
    * dall'acqua e, opzionalmente, a debita distanza da un altro punto) per il
-   * posizionamento di bonsai e rocce (Fase 5, GDD §4). Poiché il laghetto
-   * occupa al più `POND_AREA_RATIO` della vasca, l'area asciutta è sempre
-   * ampiamente maggioritaria: pochi tentativi bastano quasi sempre.
+   * posizionamento di bonsai e rocce. Poiché il laghetto occupa al più
+   * `POND_AREA_RATIO` della vasca, l'area asciutta è sempre ampiamente
+   * maggioritaria: pochi tentativi bastano quasi sempre.
    *
    * @param {Object} [options]
    * @param {number} [options.wallMargin=0.05] Distanza minima dai bordi interni della vasca.
@@ -345,7 +259,7 @@ export class GardenBase {
         color: 0x8d8d86,
       });
 
-      rock.position.set(x, this.sandTopY + radius * 0.6, z);
+      rock.position.set(x, this.sandTopY + radius * 1.5, z);
       rock.rotation.set(
         Math.random() * Math.PI,
         Math.random() * Math.PI,
@@ -359,8 +273,8 @@ export class GardenBase {
   }
 
   /**
-   * Ricostruisce le rocce da uno stato salvato (Fase 3, GDD §2), al posto
-   * della dispersione casuale di `_scatterRocks`.
+   * Ricostruisce le rocce da uno stato salvato, al posto della dispersione
+   * casuale di `_scatterRocks`.
    * @param {Object[]} rocksState Array prodotto da `serializeRock` per ogni roccia.
    */
   _restoreRocks(rocksState) {

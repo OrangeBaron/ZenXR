@@ -1,16 +1,12 @@
 /**
- * ============================================================================
- * PlacementPreview.js
- * ============================================================================
- * Responsabilità unica (SRP): rappresentare visivamente, tramite un box
- * semitrasparente delle stesse dimensioni della vasca (vedi GardenLayout.js),
- * dove e come verrà posizionato il giardino sulla superficie reale rilevata
- * dall'hit-test — un'anteprima più leggibile del reale ingombro rispetto a
- * un semplice reticolo puntiforme.
+ * Rappresenta visivamente, tramite un box semitrasparente delle stesse
+ * dimensioni della vasca (vedi GardenLayout.js), dove e come verrà
+ * posizionato il giardino sulla superficie reale rilevata dall'hit-test:
+ * un'anteprima più leggibile del reale ingombro rispetto a un semplice
+ * reticolo puntiforme.
  *
- * NON gestisce: la logica di hit-test WebXR (XRManager.js) né il
- * posizionamento definitivo del "Garden Group" (XRInteractionManager.js).
- * ============================================================================
+ * Non gestisce la logica di hit-test WebXR (XRManager.js) né il
+ * posizionamento definitivo del gruppo giardino (XRInteractionManager.js).
  */
 import * as THREE from 'three';
 import {
@@ -20,6 +16,10 @@ import {
   GARDEN_TRAY_HEIGHT,
 } from '../utils/GardenLayout.js';
 
+/**
+ * Anteprima 3D del punto di posizionamento del giardino, guidata dai
+ * risultati dell'hit-test WebXR.
+ */
 export class PlacementPreview {
   constructor() {
     const width = GARDEN_WIDTH + GARDEN_WALL_THICKNESS * 2;

@@ -1,15 +1,11 @@
 /**
- * ============================================================================
- * XRManager.js
- * ============================================================================
  * Responsabilità unica (SRP): gestire il ciclo di vita della sessione WebXR
  * "immersive-ar" — bottone di ingresso, reference space e hit-test source.
  *
- * NON gestisce: contenuti di scena, entità procedurali o stato di gioco.
+ * Non gestisce: contenuti di scena, entità procedurali o stato di gioco.
  * Espone `getHitPose(frame)`, da interrogare ad ogni frame XR per ottenere
  * la posa (posizione+orientamento) del punto della superficie reale colpita
  * al centro dello sguardo dell'utente (usata per posizionare il reticolo).
- * ============================================================================
  */
 import { ARButton } from 'three/addons/webxr/ARButton.js';
 
@@ -33,9 +29,8 @@ export class XRManager {
     this.renderer.xr.setReferenceSpaceType('local-floor');
 
     this.button = ARButton.createButton(renderer, {
-      // Fase 6 (GDD §3): l'app abbandona i controller standard a favore del
-      // solo hand-tracking, quindi 'hand-tracking' è obbligatoria — nessun
-      // percorso applicativo si aspetta più input da un controller fisico.
+      // 'hand-tracking' è una feature obbligatoria: l'app usa esclusivamente
+      // le mani come input, nessun percorso applicativo prevede controller fisici.
       requiredFeatures: ['hit-test', 'hand-tracking'],
       optionalFeatures: ['dom-overlay', 'anchors'],
       domOverlay: { root: document.body },

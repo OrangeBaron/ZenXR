@@ -1,21 +1,19 @@
 /**
- * ============================================================================
- * MatcapTextureFactory.js
- * ============================================================================
- * Responsabilità unica (SRP): generare proceduralmente texture "matcap"
- * (Material Capture) opache e vellutate a partire da un colore base, senza
- * caricare alcun file esterno — coerente col vincolo "zero asset esterni /
- * zero tempi di caricamento" del GDD (§6). Disegniamo un gradiente radiale
- * su un canvas offscreen che simula l'occlusione ambientale di una sfera
- * illuminata dall'alto: economico e sufficiente per lo stile low-poly.
- * ============================================================================
+ * Responsabilità unica: generare proceduralmente texture "matcap" (Material
+ * Capture) opache e vellutate a partire da un colore base, senza caricare
+ * alcun file esterno. Disegna un gradiente radiale su un canvas offscreen
+ * che simula l'occlusione ambientale di una sfera illuminata dall'alto:
+ * economico e sufficiente per lo stile low-poly.
  */
 import * as THREE from 'three';
 
 /**
+ * Crea una texture matcap procedurale da usare come mappa di illuminazione
+ * statica su materiali low-poly, evitando il caricamento di asset esterni.
+ *
  * @param {number} baseColorHex Colore base in esadecimale (es. 0x8d8d86).
  * @param {number} [size=128] Lato in pixel della texture quadrata generata.
- * @returns {THREE.CanvasTexture}
+ * @returns {THREE.CanvasTexture} Texture matcap pronta per l'uso in un MeshMatcapMaterial.
  */
 export function createMatcapTexture(baseColorHex, size = 128) {
   const canvas = document.createElement('canvas');

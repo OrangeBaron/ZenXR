@@ -1,14 +1,10 @@
 /**
- * ============================================================================
- * SceneManager.js
- * ============================================================================
  * Responsabilità unica (SRP): creare e possedere Scene, PerspectiveCamera e
  * WebGLRenderer, con shadow map abilitate e ottimizzate per Quest 3.
  * Gestisce anche il resize della finestra e il rendering del frame corrente.
  *
- * NON gestisce: sessioni WebXR (vedi XRManager.js), input, stato di gioco o
+ * Non gestisce: sessioni WebXR (vedi XRManager.js), input, stato di gioco o
  * contenuti procedurali (vedi /src/entities).
- * ============================================================================
  */
 import * as THREE from 'three';
 
@@ -38,9 +34,9 @@ export class SceneManager {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
-    // Shadow map: abilitate ma "leggere" (PCFSoft = buon compromesso qualità/costo
-    // su chip mobile). Il GDD (§6) prevede ombre dinamiche solo per mani/rastrello:
-    // saranno le entità future a impostare castShadow/receiveShadow selettivamente.
+    // Shadow map abilitate ma "leggere" (PCFSoft = buon compromesso qualità/costo
+    // su chip mobile). castShadow/receiveShadow vengono impostati selettivamente
+    // dalle singole entità, non qui.
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
@@ -55,8 +51,9 @@ export class SceneManager {
   }
 
   /**
-   * Illuminazione minimale provvisoria. Verrà sostituita/estesa dalla
-   * Lighting Estimation API di WebXR (Fase 8) per adattarsi alla stanza reale.
+   * Configura l'illuminazione di base della scena (hemisphere + directional
+   * con ombre). Destinata a essere sostituita/estesa dalla Lighting
+   * Estimation API di WebXR per adattarsi alla stanza reale.
    */
   _addBaseLighting() {
     this.hemiLight = new THREE.HemisphereLight(0xffffff, 0x445544, 1.2);

@@ -1,11 +1,7 @@
 /**
- * ============================================================================
- * GeometrySerializer.js
- * ============================================================================
- * Responsabilità unica (SRP): convertire una BufferGeometry generata
+ * Responsabilità unica: convertire una BufferGeometry generata
  * proceduralmente (rocce, rami, foglie) in un array di posizioni "piatto"
- * (Array JSON-serializzabile) e viceversa, per la persistenza su LocalStorage
- * (Fase 3, GDD §2).
+ * (Array JSON-serializzabile) e viceversa, per la persistenza su LocalStorage.
  *
  * Le rocce e le foglie usano geometrie NON indicizzate (IcosahedronGeometry),
  * mentre i segmenti dei rami usano CylinderGeometry, che invece È indicizzata.
@@ -14,12 +10,14 @@
  * vengono ricalcolate al volo in fase di ripristino e, poiché tutti i
  * materiali del giardino usano `flatShading: true`, la resa visiva finale non
  * dipende dalla condivisione dei vertici tra facce adiacenti.
- * ============================================================================
  */
 import * as THREE from 'three';
 
 /**
- * @param {THREE.BufferGeometry} geometry
+ * Serializza le posizioni dei vertici di una geometria in un array piatto
+ * pronto per essere salvato come JSON.
+ *
+ * @param {THREE.BufferGeometry} geometry Geometria da serializzare.
  * @returns {number[]} Posizioni dei vertici in triangle-soup (x,y,z per ogni vertice).
  */
 export function serializeGeometryPositions(geometry) {
@@ -28,6 +26,10 @@ export function serializeGeometryPositions(geometry) {
 }
 
 /**
+ * Ricostruisce una geometria renderizzabile a partire da un array di
+ * posizioni prodotto da `serializeGeometryPositions`, usata per ripristinare
+ * gli oggetti procedurali del giardino da un salvataggio.
+ *
  * @param {number[]} positions Array piatto (x,y,z per ogni vertice) da serializeGeometryPositions.
  * @returns {THREE.BufferGeometry} Geometria non indicizzata pronta per il rendering flat-shaded.
  */

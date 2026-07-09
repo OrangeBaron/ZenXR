@@ -1,11 +1,8 @@
 /**
- * ============================================================================
- * LeafFallManager.js
- * ============================================================================
  * Responsabilità unica (SRP): gestire l'animazione di caduta "a zig-zag" e il
- * fade-out delle foglie potate, ignorando gli ostacoli della scena virtuale
- * per posarsi fluidamente sulla vasca o cadere oltre.
- * ============================================================================
+ * fade-out delle foglie potate, rilevando in modo semplificato il contatto
+ * con la vasca del bonsai o con una superficie reale tracciata via WebXR,
+ * senza collisioni fisiche vere e proprie con il resto della scena.
  */
 import * as THREE from 'three';
 import * as TWEEN from '@tweenjs/tween.js';
@@ -22,6 +19,7 @@ export class LeafFallManager {
     this.garden = garden;
     this.fallingLeaves = [];
     this.clock = new THREE.Clock();
+    this._tempLocalPos = new THREE.Vector3();
   }
 
   /**
@@ -40,7 +38,7 @@ export class LeafFallManager {
     leaf.userData.fallData = {
       time: 0,
       startX: leaf.position.x - Math.sin(phaseOffset) * zigZagWidth,
-      startY: leaf.position.y, // Salviamo la quota di partenza
+      startY: leaf.position.y,
       startZ: leaf.position.z - Math.cos(phaseOffset) * zigZagWidth,
       phaseOffset: phaseOffset,
       speedY: 0.15 + Math.random() * 0.1,
@@ -56,7 +54,7 @@ export class LeafFallManager {
    * Da chiamare ad ogni frame nell'animation loop.
    * @param {XRPose|null} hitPose La posa del mondo reale rilevata in questo frame.
    */
-  update(hitPose = null) { // <-- Accetta la pose da main.js
+  update(hitPose = null) {
     const delta = this.clock.getDelta();
     TWEEN.update();
 
@@ -74,8 +72,10 @@ export class LeafFallManager {
       leaf.rotation.x += delta * 0.8;
       leaf.rotation.y += delta * 1.2;
 
-      // --- LOGICA DI COLLISIONE ---
-      const localPos = leaf.position.clone();
+      // Verifica del contatto: converte la posizione in coordinate locali
+      // rispetto al gruppo del giardino per determinare se la foglia si trova
+      // sopra la vasca oppure fuori, nello spazio reale.
+      const localPos = this._tempLocalPos.copy(leaf.position);
       this.garden.group.worldToLocal(localPos);
 
       const halfWidth = GARDEN_WIDTH / 2;
@@ -83,7 +83,7 @@ export class LeafFallManager {
       const isOverTray = Math.abs(localPos.x) <= halfWidth && Math.abs(localPos.z) <= halfDepth;
 
       if (isOverTray) {
-        // Cade DENTRO la vasca
+        // Cade dentro la vasca.
         if (localPos.y <= this.garden.sandTopY) {
           localPos.y = this.garden.sandTopY;
           this.garden.group.localToWorld(localPos);
@@ -91,25 +91,25 @@ export class LeafFallManager {
           this._startFadeOut(leaf);
         }
       } else {
-        // Cade FUORI dalla vasca (Mondo Reale)
+        // Cade fuori dalla vasca, nello spazio reale circostante.
         const fallbackY = this.garden.group.position.y - 1.0;
         let surfaceY = fallbackY;
 
-        // Se WebXR sta tracciando una superficie in questo momento, la usiamo.
+        // Se WebXR sta tracciando una superficie in questo momento, la usa come piano d'appoggio.
         if (hitPose) {
           const hitY = hitPose.transform.position.y;
-          // Evitiamo false collisioni con i muri: accettiamo la superficie solo se 
-          // è fisicamente più in basso di dove abbiamo mollato la foglia.
+          // Evita false collisioni con i muri: accetta la superficie solo se
+          // è fisicamente più in basso del punto in cui la foglia è stata rilasciata.
           if (hitY < data.startY) {
             surfaceY = hitY;
           }
         }
 
         if (leaf.position.y <= surfaceY) {
-          leaf.position.y = surfaceY; // Snap sul pavimento o tavolo reale
+          leaf.position.y = surfaceY; // Aggancia la foglia al pavimento o al tavolo reale tracciato.
           this._startFadeOut(leaf);
         } else if (leaf.position.y <= fallbackY) {
-          // Raggiunto il limite di sicurezza (es. non stavamo guardando nessuna superficie)
+          // Limite di sicurezza raggiunto senza alcuna superficie tracciata: la foglia dissolve comunque.
           this._startFadeOut(leaf);
         }
       }
@@ -126,12 +126,10 @@ export class LeafFallManager {
       .to({ opacity: 0 }, 2000)
       .easing(TWEEN.Easing.Quadratic.Out)
       .onComplete(() => {
-        // Pulizia dalla scena e dalla memoria
         this.scene.remove(leaf);
         leaf.geometry.dispose();
         leaf.material.dispose();
-        
-        // Rimuoviamo la foglia dall'array
+
         const index = this.fallingLeaves.indexOf(leaf);
         if (index > -1) {
           this.fallingLeaves.splice(index, 1);

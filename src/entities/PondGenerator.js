@@ -1,19 +1,15 @@
 /**
- * ============================================================================
- * PondGenerator.js
- * ============================================================================
- * Responsabilità unica (SRP): generare proceduralmente la geometria di un
- * laghetto a forma di "macchia" organica, ANCORATO a un angolo della vasca
- * (Fase 5, GDD §4): il vertice del laghetto coincide esattamente con
- * l'angolo, i due lati corrono lungo le due pareti che vi si incontrano, e il
- * bordo opposto — quello rivolto verso l'interno della vasca — è una curva
- * irregolare ottenuta perturbando con rumore casuale il raggio di un quarto
- * di cerchio. Il risultato è "come se la macchia fosse più grande e
- * sporgesse oltre il bordo della vasca": qui viene generata direttamente e
- * soltanto la porzione visibile, senza bisogno di ritagliarla in un secondo
- * passo.
+ * Genera proceduralmente la geometria di un laghetto a forma di "macchia"
+ * organica, ancorato a un angolo della vasca: il vertice del laghetto
+ * coincide esattamente con l'angolo, i due lati corrono lungo le due pareti
+ * che vi si incontrano, e il bordo opposto — quello rivolto verso l'interno
+ * della vasca — è una curva irregolare ottenuta perturbando con rumore
+ * casuale il raggio di un quarto di cerchio. Il risultato equivale a una
+ * macchia più grande che sporge oltre il bordo della vasca: qui viene
+ * generata direttamente e soltanto la porzione visibile, senza bisogno di
+ * ritagliarla in un secondo passo.
  *
- * NOTA SUL CONTORNO: i punti sono generati a un angolo FISSO ed equispaziato
+ * Nota sul contorno: i punti sono generati a un angolo fisso ed equispaziato
  * entro il quarto di cerchio rivolto verso l'interno della vasca (solo il
  * raggio è casuale). Il contorno è quindi sempre "a stella" rispetto
  * all'angolo (ogni raggio dall'angolo incontra il bordo una sola volta) e i
@@ -23,10 +19,9 @@
  * Questo rende sia la triangolazione a ventaglio sia il test `isInsidePond`
  * semplici ed esatti, senza bisogno di un vero point-in-polygon.
  *
- * NON gestisce: il layout della vasca (quale angolo scegliere, quanto grande
- * dev'essere il laghetto) — quello è compito di `GardenBase.js` — né lo
- * shader d'acqua interattivo con le increspature (Fase 8).
- * ============================================================================
+ * Non gestisce il layout della vasca (quale angolo scegliere, quanto grande
+ * dev'essere il laghetto), compito di `GardenBase.js`, né lo shader d'acqua
+ * interattivo con le increspature.
  */
 import * as THREE from 'three';
 import { createMatcapTexture } from '../utils/MatcapTextureFactory.js';
@@ -197,7 +192,7 @@ function boundaryRadiusAtAngle(pond, angle) {
  * Verifica se il punto `(x, z)` (nello spazio locale del gruppo del
  * giardino, cioè lo stesso spazio delle posizioni di rocce e bonsai) cade
  * dentro il laghetto — usato da `GardenBase.js` per non generare rocce o
- * bonsai in acqua (Fase 5, GDD §4).
+ * bonsai in acqua.
  *
  * @param {THREE.Mesh} pond Laghetto creato da `createPond` (o `deserializePond`), già posizionato.
  * @param {number} x
@@ -216,8 +211,8 @@ export function isInsidePond(pond, x, z, margin = 0) {
 /**
  * Cattura forma (vertici), contorno, range angolare, colore e posizione di
  * un laghetto già generato, in un oggetto JSON-serializzabile pronto per il
- * `SaveSystem` (GDD §2), così il ripristino ricrea l'identica macchia invece
- * di rigenerarne una nuova casuale.
+ * `SaveSystem`, così il ripristino ricrea l'identica macchia invece di
+ * rigenerarne una nuova casuale.
  *
  * @param {THREE.Mesh} pond Laghetto creato da `createPond`.
  * @returns {Object} Stato serializzabile del laghetto.
@@ -253,6 +248,88 @@ export function deserializePond(data) {
   mesh.userData.angleStart = data.angleStart;
   mesh.userData.angleEnd = data.angleEnd;
   return mesh;
+}
+
+/**
+ * Genera un gruppo (InstancedMesh) di ciottoli disposti lungo il bordo irregolare
+ * del laghetto passato come parametro.
+ * @param {THREE.Mesh} pond Il laghetto generato.
+ * @param {number} sandTopY La quota Y della sabbia per appoggiare i ciottoli.
+ * @returns {THREE.InstancedMesh|null}
+ */
+export function generatePondPebbles(pond, sandTopY) {
+  const contour = pond.userData.contour;
+  if (!contour || contour.length < 2) return null;
+
+  // Hash trigonometrico deterministico: a parità di seed produce sempre lo
+  // stesso valore in [0,1), utile per variazioni riproducibili senza stato.
+  const pseudoRandom = (seed) => {
+    const x = Math.sin(seed * 12.9898) * 43758.5453;
+    return x - Math.floor(x);
+  };
+
+  const pebbleGeometry = new THREE.IcosahedronGeometry(0.02, 0);
+  const pebbleMaterial = new THREE.MeshMatcapMaterial({
+    matcap: createMatcapTexture(0x6e6b66),
+    flatShading: true,
+  });
+
+  let totalLength = 0;
+  const segmentLengths = [];
+  for (let i = 0; i < contour.length - 1; i++) {
+    const dist = Math.hypot(contour[i+1].x - contour[i].x, contour[i+1].z - contour[i].z);
+    totalLength += dist;
+    segmentLengths.push(dist);
+  }
+
+  const pebbleCount = Math.floor(totalLength / 0.03);
+  const instancedPebbles = new THREE.InstancedMesh(pebbleGeometry, pebbleMaterial, pebbleCount);
+  instancedPebbles.receiveShadow = true;
+  instancedPebbles.castShadow = true;
+
+  const dummy = new THREE.Object3D();
+
+  // Parametrizzazione per lunghezza d'arco: ogni ciottolo è posizionato a
+  // una distanza percorsa costante lungo il contorno (non per indice di
+  // vertice), così la densità visiva resta uniforme anche se i segmenti del
+  // contorno hanno lunghezze diverse.
+  for (let i = 0; i < pebbleCount; i++) {
+    const targetDistance = (i / pebbleCount) * totalLength;
+
+    let accumulated = 0;
+    let segIdx = 0;
+    while (segIdx < segmentLengths.length && accumulated + segmentLengths[segIdx] <= targetDistance) {
+      accumulated += segmentLengths[segIdx];
+      segIdx++;
+    }
+    if (segIdx >= contour.length - 1) segIdx = contour.length - 2;
+
+    const t = (targetDistance - accumulated) / segmentLengths[segIdx];
+    const ptA = contour[segIdx];
+    const ptB = contour[segIdx + 1];
+
+    const baseX = THREE.MathUtils.lerp(ptA.x, ptB.x, t);
+    const baseZ = THREE.MathUtils.lerp(ptA.z, ptB.z, t);
+
+    const offsetDist = (pseudoRandom(i) - 0.5) * 0.025; 
+    const randScale = 0.5 + pseudoRandom(i + 100) * 1.0;
+    const randRotX = pseudoRandom(i + 200) * Math.PI;
+    const randRotY = pseudoRandom(i + 300) * Math.PI;
+
+    dummy.position.set(
+      pond.position.x + baseX + offsetDist,
+      sandTopY + 0.001,
+      pond.position.z + baseZ + offsetDist
+    );
+    
+    dummy.rotation.set(randRotX, randRotY, 0);
+    dummy.scale.setScalar(randScale);
+    dummy.scale.y *= 0.4;
+    dummy.updateMatrix();
+    instancedPebbles.setMatrixAt(i, dummy.matrix);
+  }
+
+  return instancedPebbles;
 }
 
 export { SURFACE_LIFT as POND_SURFACE_LIFT };

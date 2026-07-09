@@ -1,11 +1,7 @@
 /**
- * ============================================================================
- * HandOcclusionManager.js
- * ============================================================================
  * Responsabilità unica (SRP): far sì che le mani reali dell'utente possano
- * "occludere" visivamente gli oggetti virtuali del giardino in `immersive-ar`.
+ * occludere visivamente gli oggetti virtuali del giardino in `immersive-ar`.
  * Utilizza XRHandModelFactory per generare una mesh continua della mano.
- * ============================================================================
  */
 import * as THREE from 'three';
 import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js';
@@ -16,7 +12,7 @@ const HAND_COUNT = 2;
 /** Disegnata per prima: deve "bucare" lo z-buffer prima degli altri oggetti. */
 const OCCLUSION_RENDER_ORDER = -1;
 
-// Materiale invisibile che scrive solo nello z-buffer
+// colorWrite: false rende il materiale invisibile mantenendo la scrittura nello z-buffer.
 const occlusionMaterial = new THREE.MeshBasicMaterial({ colorWrite: false });
 
 export class HandOcclusionManager {
@@ -30,7 +26,6 @@ export class HandOcclusionManager {
     this.scene = scene;
     this.hands = [];
 
-    // Inizializziamo la factory per i modelli delle mani
     const handModelFactory = new XRHandModelFactory();
 
     for (let i = 0; i < HAND_COUNT; i++) {
@@ -38,12 +33,11 @@ export class HandOcclusionManager {
       this.scene.add(hand);
       this.hands.push(hand);
 
-      // Generiamo il modello continuo della mano (profilo 'mesh')
       const handModel = handModelFactory.createHandModel(hand, 'mesh');
       hand.add(handModel);
 
-      // Assicuriamoci di applicare il materiale di occlusione non appena
-      // la mano viene riconosciuta e connessa
+      // Il glTF della mano è caricato in modo asincrono: il materiale di
+      // occlusione va applicato solo dopo che il device l'ha riconosciuta.
       hand.addEventListener('connected', () => {
         this._applyOcclusionMaterial(handModel);
       });
@@ -51,30 +45,35 @@ export class HandOcclusionManager {
   }
 
   /**
-   * Applica ricorsivamente il materiale invisibile a tutte le mesh del modello.
-   * @param {THREE.Object3D} model 
+   * Applica ricorsivamente il materiale di occlusione a tutte le mesh del
+   * modello e marca il modello come già elaborato.
+   *
+   * @param {THREE.Object3D} model Root del modello della mano generato da XRHandModelFactory.
    */
   _applyOcclusionMaterial(model) {
     model.traverse((child) => {
-      if (child.isMesh) {
+      if (child.isMesh && child.material !== occlusionMaterial) {
         child.material = occlusionMaterial;
         child.renderOrder = OCCLUSION_RENDER_ORDER;
       }
     });
+    model.userData.isOccluded = true;
   }
 
   /**
-   * Da chiamare ad ogni frame XR nell'animation loop.
-   * A differenza dell'approccio a sfere, i giunti sono aggiornati in 
-   * automatico dalla factory, ma forziamo l'applicazione del materiale
-   * in caso il glTF della mano venga caricato asincronamente con ritardo.
+   * Da chiamare ad ogni frame XR nell'animation loop. Rete di sicurezza per
+   * il caso in cui il listener `connected` non abbia ancora applicato il
+   * materiale di occlusione al momento in cui il modello risulta popolato.
    */
   update() {
     for (const hand of this.hands) {
+      if (hand.children.length === 0 || hand.userData.isOccluded) continue;
+
       hand.traverse((child) => {
         if (child.isMesh && child.material !== occlusionMaterial) {
           child.material = occlusionMaterial;
           child.renderOrder = OCCLUSION_RENDER_ORDER;
+          hand.userData.isOccluded = true;
         }
       });
     }

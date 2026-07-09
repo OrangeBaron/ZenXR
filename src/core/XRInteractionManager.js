@@ -1,20 +1,16 @@
 /**
- * ============================================================================
- * XRInteractionManager.js
- * ============================================================================
  * Responsabilità unica (SRP): ascoltare l'evento 'select' della sessione
- * WebXR — normalizzato dallo standard sia per il grilletto di un
- * controller sia per il gesto di pinch in hand-tracking — e posizionare un
- * gruppo target (il "Garden Group") sulla posa corrente dell'anteprima di
+ * WebXR — normalizzato dallo standard sia per il grilletto di un controller
+ * sia per il gesto di pinch in hand-tracking — e posizionare un gruppo
+ * target (il "Garden Group") sulla posa corrente dell'anteprima di
  * posizionamento (hit-test).
  *
- * NON gestisce: hit-testing (XRManager.js) né la generazione degli asset
+ * Non gestisce l'hit-testing (XRManager.js) né la generazione degli asset
  * (GardenBase.js).
  *
  * Dopo il primo posizionamento il listener si autodisattiva (`hasPlaced`) e
  * l'anteprima viene nascosta definitivamente, per evitare di riposizionare
  * accidentalmente l'intero giardino a ogni ulteriore trigger/pinch.
- * ============================================================================
  */
 export class XRInteractionManager {
   /**
@@ -47,8 +43,8 @@ export class XRInteractionManager {
     this.session = this.renderer.xr.getSession();
     this.session.addEventListener('select', this._handleSelect);
 
-    // Ogni nuova sessione richiede un nuovo posizionamento (non c'è ancora
-    // persistenza, vedi Fase 3): resettiamo lo stato e riabilitiamo l'anteprima.
+    // Ogni nuova sessione XR richiede un nuovo posizionamento (non c'è
+    // persistenza tra sessioni): resettiamo lo stato e riabilitiamo l'anteprima.
     this.hasPlaced = false;
     this.anchor = null;
     this.lastHitTransform = null;
@@ -63,19 +59,27 @@ export class XRInteractionManager {
     this.anchor = null;
   }
 
+  /**
+   * Gestisce l'evento 'select' della sessione XR (trigger o pinch): piazza
+   * il gruppo target sulla posa corrente dell'anteprima di hit-test e avvia
+   * la creazione dell'ancora spaziale WebXR corrispondente.
+   * @param {XRInputSourceEvent} event Evento 'select' emesso dalla sessione XR.
+   */
   _handleSelect(event) {
-    // Interrompi se già piazzato, se l'anteprima non è visibile, o se non abbiamo una posa valida
+    // Interrompe se già piazzato, se l'anteprima non è visibile, o se non è disponibile una posa valida.
     if (this.hasPlaced || !this.placementPreview.mesh.visible || !this.lastHitTransform) return;
 
-    // 1. Posiziona il giardino visivamente all'istante per una responsività immediata
+    // Posiziona subito il giardino a livello visivo, senza attendere la
+    // creazione dell'ancora, per una risposta immediata al gesto.
     this.targetGroup.position.setFromMatrixPosition(this.placementPreview.mesh.matrix);
     this.targetGroup.quaternion.setFromRotationMatrix(this.placementPreview.mesh.matrix);
     this.targetGroup.visible = true;
     this.hasPlaced = true;
     this.placementPreview.setEnabled(false);
 
-    // 2. Richiedi a WebXR di creare l'ancora spaziale
-    const frame = event.frame; 
+    // Richiede a WebXR la creazione dell'ancora spaziale, che aggancerà il
+    // giardino alla superficie reale in modo stabile rispetto al tracking.
+    const frame = event.frame;
     const referenceSpace = this.renderer.xr.getReferenceSpace();
 
     if (frame.createAnchor) {
@@ -99,7 +103,8 @@ export class XRInteractionManager {
    * Da chiamare ad ogni frame XR nell'animation loop.
    */
   update(frame, hitPose) {
-    // Fase Pre-Piazzamento: teniamo in memoria la miglior transform per innescare l'ancora
+    // Prima del piazzamento: mantiene in memoria l'ultima transform valida
+    // dell'hit-test, da usare per creare l'ancora al momento del select.
     if (!this.hasPlaced) {
       if (hitPose) {
         this.lastHitTransform = hitPose.transform;
@@ -107,7 +112,8 @@ export class XRInteractionManager {
       return;
     }
 
-    // Fase Post-Piazzamento: adeguiamo il giardino alla posa dell'ancora tracciata
+    // Dopo il piazzamento: sincronizza il giardino con la posa aggiornata
+    // dell'ancora tracciata.
     if (this.anchor) {
       const referenceSpace = this.renderer.xr.getReferenceSpace();
       const pose = frame.getPose(this.anchor.anchorSpace, referenceSpace);

@@ -1,10 +1,7 @@
 /**
- * ============================================================================
- * BonsaiGenerator.js
- * ============================================================================
- * Responsabilità unica (SRP): generare proceduralmente un bonsai stilizzato
- * tramite un sistema di ramificazione ricorsivo semplificato ("L-System
- * semplificato", GDD §6).
+ * Genera proceduralmente un bonsai stilizzato tramite un sistema di
+ * ramificazione ricorsivo (L-System semplificato), ed espone la sua
+ * serializzazione/deserializzazione per la persistenza dello stato.
  *
  * Tronco e rami non sono singoli cilindri dritti: ogni "arto" è una catena
  * di brevi segmenti (CylinderGeometry) con una leggera inclinazione casuale
@@ -12,16 +9,14 @@
  * spessa, nodosa e contorta di un bonsai reale invece di un tronco dritto
  * e sottile.
  *
- * Il fogliame non è più un ciuffo di grandi icosaedri: ogni "chioma" è un
- * piccolo gruppo di foglioline individuali (icosaedri appiattiti ed
- * elongati), per lo più coerenti in colore/dimensione ma con un'occasionale
- * foglia "secca" (colore bruno, spesso più piccola) — sono le foglie secche
- * di cui parla il GDD (§4), destinate a essere pizzicate via durante la
- * potatura. Ogni foglia porta `userData.isDry` per riconoscerle in futuro.
+ * Il fogliame è composto da piccoli gruppi di foglioline individuali
+ * (icosaedri appiattiti ed elongati), per lo più coerenti in colore e
+ * dimensione ma con un'occasionale foglia "secca" (colore bruno, spesso più
+ * piccola), destinata a essere rimossa durante la potatura. Ogni foglia
+ * porta `userData.isDry` per essere riconosciuta a runtime.
  *
- * NON gestisce: potatura, crescita nel tempo o interazione pinch — quelle
- * arriveranno con l'hand-tracking (Fase 4/7, GDD §4).
- * ============================================================================
+ * Non gestisce potatura, crescita nel tempo o interazione con
+ * l'hand-tracking.
  */
 import * as THREE from 'three';
 import { createMatcapTexture } from '../utils/MatcapTextureFactory.js';
@@ -69,7 +64,7 @@ function createSegmentedLimb({ length, baseRadius, tipRadius, segments, bendStre
     geometry.translate(0, segmentLength / 2, 0);
     const mesh = new THREE.Mesh(geometry, barkMaterial);
     mesh.castShadow = true;
-    mesh.userData.kind = 'branch'; // marcatura per il (de)serializzatore di stato (Fase 3)
+    mesh.userData.kind = 'branch'; // marcatura usata dal (de)serializzatore di stato
     current.add(mesh);
 
     const nextJoint = new THREE.Group();
@@ -130,8 +125,8 @@ function addFoliageCluster(tip, branchLength) {
     );
     leaf.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
     leaf.castShadow = true;
-    leaf.userData.isDry = isDry; // marcatura per la futura potatura via pinch (Fase 4/7)
-    leaf.userData.kind = 'leaf'; // marcatura per il (de)serializzatore di stato (Fase 3)
+    leaf.userData.isDry = isDry; // marcatura usata per riconoscere le foglie da potare
+    leaf.userData.kind = 'leaf'; // marcatura usata dal (de)serializzatore di stato
 
     tip.add(leaf);
   }
@@ -214,9 +209,9 @@ export function createBonsai({
 /**
  * Serializza ricorsivamente l'intero albero (gruppi, segmenti di rami e
  * foglie) in un oggetto JSON-serializzabile, per la persistenza tramite
- * `SaveSystem` (Fase 3, GDD §2). Vengono salvati forma (vertici), colore e
- * trasformazione locale di ogni nodo, così il ripristino ricrea l'identica
- * geometria generata proceduralmente invece di rigenerarne una nuova casuale.
+ * `SaveSystem`. Vengono salvati forma (vertici), colore e trasformazione
+ * locale di ogni nodo, così il ripristino ricrea l'identica geometria
+ * generata proceduralmente invece di rigenerarne una nuova casuale.
  *
  * @param {THREE.Group} bonsai Radice dell'albero creata da `createBonsai`.
  * @returns {Object} Stato serializzabile dell'albero.
@@ -225,6 +220,12 @@ export function serializeBonsai(bonsai) {
   return serializeNode(bonsai);
 }
 
+/**
+ * Serializza ricorsivamente un singolo nodo dell'albero (gruppo o mesh) e i
+ * suoi figli, in coppia con `deserializeNode`.
+ * @param {THREE.Object3D} object
+ * @returns {Object}
+ */
 function serializeNode(object) {
   const node = {
     position: object.position.toArray(),
@@ -254,6 +255,12 @@ export function deserializeBonsai(data) {
   return deserializeNode(data);
 }
 
+/**
+ * Ricostruisce ricorsivamente un singolo nodo dell'albero (gruppo o mesh) e
+ * i suoi figli, in coppia con `serializeNode`.
+ * @param {Object} data
+ * @returns {THREE.Object3D}
+ */
 function deserializeNode(data) {
   const object = data.kind ? createNodeMesh(data) : new THREE.Group();
 
@@ -264,6 +271,12 @@ function deserializeNode(data) {
   return object;
 }
 
+/**
+ * Ricrea la mesh (ramo o foglia) di un nodo a partire dai dati serializzati,
+ * scegliendo materiale e marcature in base al tipo di nodo.
+ * @param {Object} data
+ * @returns {THREE.Mesh}
+ */
 function createNodeMesh(data) {
   const geometry = geometryFromPositions(data.positions);
   const isLeaf = data.kind === 'leaf';

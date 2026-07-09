@@ -1,20 +1,16 @@
 /**
- * ============================================================================
- * RockGenerator.js
- * ============================================================================
- * Responsabilità unica (SRP): generare procedimentalmente una singola roccia
- * low-poly deformando i vertici di un IcosahedronGeometry con rumore
- * casuale (GDD §6). Nessuna geometria o materiale viene caricato da file
- * esterni.
+ * Genera proceduralmente una singola roccia low-poly deformando i vertici
+ * di un IcosahedronGeometry con rumore casuale, ed espone la sua
+ * serializzazione/deserializzazione per la persistenza dello stato. Nessuna
+ * geometria o materiale viene caricata da file esterni.
  *
- * NOTA TECNICA: `IcosahedronGeometry` (come tutte le PolyhedronGeometry di
- * Three.js) NON condivide i vertici tra facce adiacenti — ogni faccia ha la
+ * Nota tecnica: `IcosahedronGeometry` (come tutte le PolyhedronGeometry di
+ * Three.js) non condivide i vertici tra facce adiacenti: ogni faccia ha la
  * propria copia degli angoli, anche se coincidono nello spazio. Spostando
  * ogni vertice in modo indipendente si "strappano" questi angoli condivisi,
- * creando fessure visibili tra i triangoli. Per evitarlo, calcoliamo UN solo
- * spostamento casuale per ogni posizione spaziale unica e lo applichiamo a
+ * creando fessure visibili tra i triangoli. Per evitarlo si calcola un solo
+ * spostamento casuale per ogni posizione spaziale unica e si applica a
  * tutte le copie coincidenti, mantenendo la mesh chiusa ("watertight").
- * ============================================================================
  */
 import * as THREE from 'three';
 import { MeshSurfaceSampler } from 'three/addons/math/MeshSurfaceSampler.js';
@@ -22,6 +18,8 @@ import { createMatcapTexture } from '../utils/MatcapTextureFactory.js';
 import { serializeGeometryPositions, geometryFromPositions } from '../utils/GeometrySerializer.js';
 
 /**
+ * Crea una mesh di roccia low-poly deformata organicamente, con muschio
+ * distribuito proceduralmente sulla sua superficie.
  * @param {Object} [options]
  * @param {number} [options.radius=0.05] Raggio di base in metri.
  * @param {number} [options.detail=1] Dettaglio della geometria (0 o 1, per restare low-poly).
@@ -84,55 +82,43 @@ export function createRock({
   // (che resta bianco di default): lo teniamo qui per poterlo serializzare.
   mesh.userData.color = color;
 
-  // --- GENERAZIONE DEL MUSCHIO ---
-  
-  // 1. Definiamo quanto muschio vogliamo in base alla grandezza della roccia
-  const mossCount = Math.floor(radius * 800); // Es. raggio 0.05 produrrà ~40 ciuffi
-  
+  // Densità del muschio proporzionale al raggio della roccia (raggio 0.05 -> ~40 ciuffi).
+  const mossCount = Math.floor(radius * 800);
+
   if (mossCount > 0) {
-    // 2. Geometria e materiale del singolo ciuffo di muschio
     const mossGeometry = new THREE.IcosahedronGeometry(0.004, 0);
-    // Un verde organico e desaturato per il muschio
     const mossMaterial = new THREE.MeshMatcapMaterial({
-      matcap: createMatcapTexture(0x4a5d23), 
+      matcap: createMatcapTexture(0x4a5d23),
       flatShading: true,
     });
 
-    // 3. Creiamo l'InstancedMesh per le performance
     const instancedMoss = new THREE.InstancedMesh(mossGeometry, mossMaterial, mossCount);
     instancedMoss.receiveShadow = true;
     instancedMoss.castShadow = true;
 
-    // 4. Inizializziamo il Sampler passandogli la mesh della roccia appena creata
+    // Il sampler estrae punti casuali sulla superficie della mesh pesati per
+    // area dei triangoli, garantendo una distribuzione uniforme dei ciuffi.
     const sampler = new MeshSurfaceSampler(mesh).build();
-    
-    // Variabili d'appoggio per evitare di allocare nuova memoria in ogni ciclo
+
     const position = new THREE.Vector3();
     const normal = new THREE.Vector3();
     const dummy = new THREE.Object3D();
 
-    // 5. Ciclo di campionamento
     for (let i = 0; i < mossCount; i++) {
-      // Estraiamo un punto casuale e la sua normale
       sampler.sample(position, normal);
 
-      // Posizioniamo il dummy sul punto trovato
       dummy.position.copy(position);
-      
-      // Orientiamo il muschio in modo che "esca" perpendicolarmente dalla roccia
+      // Orienta il ciuffo lungo la normale locale, così sporge
+      // perpendicolarmente dalla superficie della roccia nel punto campionato.
       dummy.lookAt(position.clone().add(normal));
-      
-      // Aggiungiamo un po' di variazione casuale per spezzare la ripetitività
       dummy.rotateZ(Math.random() * Math.PI);
       dummy.scale.setScalar(0.4 + Math.random() * 0.8);
-      
+
       dummy.updateMatrix();
-      
-      // Salviamo la trasformazione nell'InstancedMesh
+
       instancedMoss.setMatrixAt(i, dummy.matrix);
     }
 
-    // 6. Agganciamo il muschio alla roccia (diventa "figlio" della roccia)
     mesh.add(instancedMoss);
   }
 
@@ -153,11 +139,11 @@ export function serializeRock(rock) {
     rotation: rock.rotation.toArray().slice(0, 3),
   };
 
-  // Cerchiamo l'InstancedMesh (il muschio) tra i figli della roccia
   const moss = rock.children.find((child) => child.isInstancedMesh);
   if (moss) {
     data.mossCount = moss.count;
-    // instanceMatrix.array è un Float32Array, lo convertiamo in un array standard per il JSON
+    // instanceMatrix.array è un Float32Array: non è serializzabile in JSON
+    // direttamente, va convertito in un array standard.
     data.mossMatrix = Array.from(moss.instanceMatrix.array);
   }
 
@@ -183,19 +169,19 @@ export function deserializeRock(data) {
   mesh.castShadow = true;
   mesh.userData.color = data.color;
 
-  // Ripristino del Muschio (se presente nel salvataggio)
   if (data.mossCount && data.mossMatrix) {
     const mossGeometry = new THREE.IcosahedronGeometry(0.004, 0);
     const mossMaterial = new THREE.MeshMatcapMaterial({
-      matcap: createMatcapTexture(0x4a5d23), 
+      matcap: createMatcapTexture(0x4a5d23),
       flatShading: true,
     });
-    
+
     const instancedMoss = new THREE.InstancedMesh(mossGeometry, mossMaterial, data.mossCount);
-    
-    // Iniettiamo l'array delle matrici salvato nel Float32Array dell'InstancedMesh
+
+    // Scrive direttamente l'array di matrici salvato nel Float32Array
+    // sottostante dell'InstancedMesh, evitando di ricostruirlo istanza per istanza.
     instancedMoss.instanceMatrix.array.set(data.mossMatrix);
-    instancedMoss.instanceMatrix.needsUpdate = true; // Diciamo alla GPU che i dati sono aggiornati
+    instancedMoss.instanceMatrix.needsUpdate = true; // Forza il riupload del buffer alla GPU
     
     instancedMoss.receiveShadow = true;
     instancedMoss.castShadow = true;

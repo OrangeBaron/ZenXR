@@ -1,10 +1,8 @@
 /**
- * ============================================================================
- * HandTrackingManager.js
- * ============================================================================
- * Responsabilità unica (SRP): gestire l'input delle mani in WebXR (Fase 6,
- * GDD §3/§4) e l'interazione di potatura — "pizzicare" (pinch) una foglia
- * secca del bonsai per staccarla.
+ * Responsabilità unica (SRP): gestire l'input delle mani in WebXR e
+ * l'interazione di potatura, ossia "pizzicare" (pinch) una foglia secca del
+ * bonsai per staccarla, oltre allo spostamento delle rocce del giardino
+ * tramite lo stesso gesto.
  *
  * Espone due `THREE.Group` (una per mano, da `renderer.xr.getHand(n)`) i cui
  * `joints` sono aggiornati automaticamente da Three.js ad ogni frame XR.
@@ -30,12 +28,11 @@
  * bounding sphere leggera, più adatta di un raycast a un gesto di "tocco"
  * localizzato nello spazio anziché diretto lungo una linea).
  *
- * NON gestisce: fisica della foglia una volta staccata (Fase 7, GDD §3 — qui
- * la foglia scompare semplicemente al rilascio del pinch), occlusione visiva
- * delle mani reali (HandOcclusionManager.js), generazione del bonsai
- * (BonsaiGenerator.js) o persistenza dello stato (StateManager.js /
- * SaveSystem.js) — si limita a notificare il cambiamento.
- * ============================================================================
+ * Non gestisce: la caduta fisica della foglia una volta staccata
+ * (LeafFallManager.js, a cui la foglia viene passata al rilascio del pinch),
+ * l'occlusione visiva delle mani reali (HandOcclusionManager.js), la
+ * generazione del bonsai (BonsaiGenerator.js) né la persistenza dello stato
+ * (StateManager.js / SaveSystem.js) — si limita a notificarne il cambiamento.
  */
 import * as THREE from 'three';
 
@@ -70,6 +67,8 @@ export class HandTrackingManager {
     this._heldLeaves = new Map();
     this._heldRocks = new Map();
     this._pinchAnchors = new Map();
+    this._tempThumbPos = new THREE.Vector3();
+    this._tempIndexPos = new THREE.Vector3();
 
     this.hands = [];
     for (let i = 0; i < HAND_COUNT; i++) {
@@ -106,12 +105,12 @@ export class HandTrackingManager {
       if (!point) continue;
       this._pinchAnchors.get(hand).position.copy(point);
 
-      // --- Spostamento rocce afferrate (Acquario invisibile gestito da Rapier) ---
+      // Se la mano tiene una roccia, comunica al motore fisico il nuovo punto
+      // bersaglio: Rapier applicherà la velocità necessaria per raggiungerlo,
+      // generando collisioni reali con bonsai e pareti della vasca.
       if (this._heldRocks.has(hand)) {
         const rock = this._heldRocks.get(hand);
-        
-        // Diciamo al motore fisico dove si trova la nostra mano. Rapier applicherà 
-        // le forze necessarie per arrivarci, scontrandosi con bonsai e muri.
+
         if (this.physicsManager) {
           this.physicsManager.moveGrabbedRock(rock, point);
         }
@@ -132,12 +131,10 @@ export class HandTrackingManager {
     const indexTip = hand.joints['index-finger-tip'];
     if (!thumbTip || !indexTip) return null;
 
-    const thumbPos = new THREE.Vector3();
-    const indexPos = new THREE.Vector3();
-    thumbTip.getWorldPosition(thumbPos);
-    indexTip.getWorldPosition(indexPos);
+    thumbTip.getWorldPosition(this._tempThumbPos);
+    indexTip.getWorldPosition(this._tempIndexPos);
 
-    return thumbPos.add(indexPos).multiplyScalar(0.5);
+    return this._tempThumbPos.add(this._tempIndexPos).multiplyScalar(0.5);
   }
 
   /**
@@ -169,8 +166,12 @@ export class HandTrackingManager {
   }
 
   /**
-   * Cerca la roccia più vicina al punto di pinch.
-   * Raggio leggermente più ampio rispetto alle foglie.
+   * Cerca, fra tutte le rocce del giardino, quella più vicina a un punto
+   * dato entro un raggio di tolleranza leggermente più ampio di quello
+   * usato per le foglie.
+   *
+   * @param {THREE.Vector3} point Punto (coordinate mondo) da cui cercare.
+   * @returns {THREE.Mesh|null}
    */
   _findClosestRockNear(point) {
     if (!this.garden || !this.garden.rocks) return null;
@@ -189,14 +190,22 @@ export class HandTrackingManager {
     return closestRock;
   }
 
+  /**
+   * Gestisce l'inizio di un pinch su una mano: cerca prima una foglia secca
+   * nel raggio di rilevamento e, se non trovata, la roccia più vicina.
+   * L'elemento trovato viene agganciato alla mano e, per le rocce, la presa
+   * viene comunicata al motore fisico.
+   *
+   * @param {THREE.Group} hand Gruppo mano su cui è iniziato il pinch.
+   */
   _handlePinchStart(hand) {
-    // Ignora se la mano ha già qualcosa
+    // Ignora il gesto se la mano tiene già una foglia o una roccia.
     if (this._heldLeaves.has(hand) || this._heldRocks.has(hand)) return;
 
     const pinchPoint = this._getPinchPoint(hand);
     if (!pinchPoint) return;
 
-    // Priorità 1: Foglie
+    // Priorità 1: foglie secche.
     const leaf = this._findDryLeafNear(pinchPoint);
     if (leaf) {
       const anchor = this._pinchAnchors.get(hand);
@@ -206,20 +215,27 @@ export class HandTrackingManager {
       return;
     }
 
-    // Priorità 2: Rocce
+    // Priorità 2: rocce.
     const rock = this._findClosestRockNear(pinchPoint);
     if (rock) {
       this._heldRocks.set(hand, rock);
-      
-      // Comunica alla fisica di abilitare la modalità "presa a velocità"
+
+      // Abilita nel motore fisico la modalità di presa basata sulla velocità.
       if (this.physicsManager) {
         this.physicsManager.setRockGrabbed(rock, true);
       }
     }
   }
 
+  /**
+   * Gestisce la fine di un pinch su una mano: rilascia la foglia trattenuta
+   * (passandola al gestore della caduta) oppure la roccia trattenuta
+   * (ripristinandone la fisica normale), notificando lo StateManager del
+   * cambiamento avvenuto.
+   *
+   * @param {THREE.Group} hand Gruppo mano su cui è terminato il pinch.
+   */
   _handlePinchEnd(hand) {
-    // 1. Gestione rilascio foglia
     const leaf = this._heldLeaves.get(hand);
     if (leaf) {
       this._heldLeaves.delete(hand);
@@ -232,16 +248,15 @@ export class HandTrackingManager {
       return;
     }
 
-    // 2. Gestione rilascio roccia
     const rock = this._heldRocks.get(hand);
     if (rock) {
       this._heldRocks.delete(hand);
-      
-      // Riattiviamo la gravità e lo stato normale
+
+      // Ripristina la gravità normale sulla roccia, terminando la presa.
       if (this.physicsManager) {
         this.physicsManager.setRockGrabbed(rock, false);
       }
-      
+
       this.stateManager?.notifyChange({ action: 'rock_moved' });
     }
   }
