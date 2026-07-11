@@ -65,7 +65,7 @@ export class HandTrackingManager {
     this.physicsManager = physicsManager;
 
     this._heldLeaves = new Map();
-    this._heldRocks = new Map();
+    this._heldObjects = new Map();
     this._pinchAnchors = new Map();
     this._tempThumbPos = new THREE.Vector3();
     this._tempIndexPos = new THREE.Vector3();
@@ -103,16 +103,32 @@ export class HandTrackingManager {
     for (const hand of this.hands) {
       const point = this._getPinchPoint(hand);
       if (!point) continue;
-      this._pinchAnchors.get(hand).position.copy(point);
+      
+      const anchor = this._pinchAnchors.get(hand);
+      anchor.position.copy(point);
 
-      // Se la mano tiene una roccia, comunica al motore fisico il nuovo punto
-      // bersaglio: Rapier applicherà la velocità necessaria per raggiungerlo,
-      // generando collisioni reali con bonsai e pareti della vasca.
-      if (this._heldRocks.has(hand)) {
-        const rock = this._heldRocks.get(hand);
+      const wrist = hand.joints['wrist'];
+      if (wrist) {
+        const wristPos = new THREE.Vector3();
+        const wristQuat = new THREE.Quaternion();
+        wrist.getWorldPosition(wristPos);
+        wrist.getWorldQuaternion(wristQuat); // Prende la rotazione reale 3D del polso
+        
+        const handDir = new THREE.Vector3().subVectors(point, wristPos).normalize();
+        
+        // Estrae il vettore "Up" reale per preservare la supinazione/pronazione
+        const up = new THREE.Vector3(0, 1, 0).applyQuaternion(wristQuat);
+        
+        if (Math.abs(handDir.y) < 0.99) {
+          const targetMtx = new THREE.Matrix4().lookAt(new THREE.Vector3(), handDir, up);
+          anchor.quaternion.setFromRotationMatrix(targetMtx);
+        }
+      }
 
+      if (this._heldObjects.has(hand)) {
+        const rock = this._heldObjects.get(hand);
         if (this.physicsManager) {
-          this.physicsManager.moveGrabbedRock(rock, point);
+          this.physicsManager.moveGrabbedObject(rock, point, anchor.quaternion);
         }
       }
     }
@@ -138,59 +154,6 @@ export class HandTrackingManager {
   }
 
   /**
-   * Cerca, fra tutte le foglie secche del bonsai, quella più vicina a un
-   * punto dato entro `PINCH_DETECTION_RADIUS`.
-   *
-   * @param {THREE.Vector3} point Punto (coordinate mondo) da cui cercare.
-   * @returns {THREE.Mesh|null}
-   */
-  _findDryLeafNear(point) {
-    if (!this.bonsai) return null;
-
-    let closestLeaf = null;
-    let closestDistanceSq = PINCH_DETECTION_RADIUS * PINCH_DETECTION_RADIUS;
-    const leafWorldPosition = new THREE.Vector3();
-
-    this.bonsai.traverse((object) => {
-      if (object.userData.kind !== 'leaf' || !object.userData.isDry) return;
-
-      object.getWorldPosition(leafWorldPosition);
-      const distanceSq = leafWorldPosition.distanceToSquared(point);
-      if (distanceSq < closestDistanceSq) {
-        closestDistanceSq = distanceSq;
-        closestLeaf = object;
-      }
-    });
-
-    return closestLeaf;
-  }
-
-  /**
-   * Cerca, fra tutte le rocce del giardino, quella più vicina a un punto
-   * dato entro un raggio di tolleranza leggermente più ampio di quello
-   * usato per le foglie.
-   *
-   * @param {THREE.Vector3} point Punto (coordinate mondo) da cui cercare.
-   * @returns {THREE.Mesh|null}
-   */
-  _findClosestRockNear(point) {
-    if (!this.garden || !this.garden.rocks) return null;
-    let closestRock = null;
-    let closestDistanceSq = 0.08 * 0.08; 
-    const rockWorldPosition = new THREE.Vector3();
-
-    for (const rock of this.garden.rocks) {
-      rock.getWorldPosition(rockWorldPosition);
-      const distanceSq = rockWorldPosition.distanceToSquared(point);
-      if (distanceSq < closestDistanceSq) {
-        closestDistanceSq = distanceSq;
-        closestRock = rock;
-      }
-    }
-    return closestRock;
-  }
-
-  /**
    * Gestisce l'inizio di un pinch su una mano: cerca prima una foglia secca
    * nel raggio di rilevamento e, se non trovata, la roccia più vicina.
    * L'elemento trovato viene agganciato alla mano e, per le rocce, la presa
@@ -199,30 +162,76 @@ export class HandTrackingManager {
    * @param {THREE.Group} hand Gruppo mano su cui è iniziato il pinch.
    */
   _handlePinchStart(hand) {
-    // Ignora il gesto se la mano tiene già una foglia o una roccia.
-    if (this._heldLeaves.has(hand) || this._heldRocks.has(hand)) return;
+    // Ignora il gesto se la mano tiene già qualcosa
+    if (this._heldLeaves.has(hand) || this._heldObjects.has(hand)) return;
 
     const pinchPoint = this._getPinchPoint(hand);
     if (!pinchPoint) return;
 
-    // Priorità 1: foglie secche.
-    const leaf = this._findDryLeafNear(pinchPoint);
-    if (leaf) {
-      const anchor = this._pinchAnchors.get(hand);
-      anchor.position.copy(pinchPoint);
-      anchor.attach(leaf);
-      this._heldLeaves.set(hand, leaf);
-      return;
+    let closestObject = null;
+    let closestType = null;
+    let minDistanceSq = Infinity;
+
+    // 1. Compete per le Foglie Secche
+    if (this.bonsai) {
+      const maxDistSq = 0.035 * 0.035;
+      const pos = new THREE.Vector3();
+      this.bonsai.traverse((object) => {
+        if (object.userData.kind === 'leaf' && object.userData.isDry) {
+          object.getWorldPosition(pos);
+          const distSq = pos.distanceToSquared(pinchPoint);
+          if (distSq < maxDistSq && distSq < minDistanceSq) {
+            minDistanceSq = distSq;
+            closestObject = object;
+            closestType = 'leaf';
+          }
+        }
+      });
     }
 
-    // Priorità 2: rocce.
-    const rock = this._findClosestRockNear(pinchPoint);
-    if (rock) {
-      this._heldRocks.set(hand, rock);
+    // 2. Competono le Rocce
+    if (this.garden && this.garden.rocks) {
+      const maxDistSq = 0.08 * 0.08;
+      const pos = new THREE.Vector3();
+      for (const rock of this.garden.rocks) {
+        rock.getWorldPosition(pos);
+        const distSq = pos.distanceToSquared(pinchPoint);
+        if (distSq < maxDistSq && distSq < minDistanceSq) {
+          minDistanceSq = distSq;
+          closestObject = rock;
+          closestType = 'rock';
+        }
+      }
+    }
 
-      // Abilita nel motore fisico la modalità di presa basata sulla velocità.
+    // 3. Compete il Rastrello
+    if (this.garden && this.garden.rake) {
+      const maxDistSq = 0.2 * 0.2; 
+      const pos = new THREE.Vector3();
+      this.garden.rake.getWorldPosition(pos); 
+      const distSq = pos.distanceToSquared(pinchPoint);
+      if (distSq < maxDistSq && distSq < minDistanceSq) {
+        minDistanceSq = distSq;
+        closestObject = this.garden.rake;
+        closestType = 'rake';
+      }
+    }
+
+    if (!closestObject) return;
+
+    // Recupera l'ancora corrente per la rotazione
+    const anchor = this._pinchAnchors.get(hand);
+
+    if (closestType === 'leaf') {
+      anchor.position.copy(pinchPoint);
+      anchor.attach(closestObject);
+      this._heldLeaves.set(hand, closestObject);
+    } else if (closestType === 'rock' || closestType === 'rake') {
+      this._heldObjects.set(hand, closestObject);
+      
       if (this.physicsManager) {
-        this.physicsManager.setRockGrabbed(rock, true);
+        // Passiamo anche la rotazione della mano al momento della presa!
+        this.physicsManager.setObjectGrabbed(closestObject, true, anchor.quaternion);
       }
     }
   }
@@ -248,16 +257,18 @@ export class HandTrackingManager {
       return;
     }
 
-    const rock = this._heldRocks.get(hand);
-    if (rock) {
-      this._heldRocks.delete(hand);
+    const obj = this._heldObjects.get(hand);
+    if (obj) {
+      this._heldObjects.delete(hand);
 
-      // Ripristina la gravità normale sulla roccia, terminando la presa.
       if (this.physicsManager) {
-        this.physicsManager.setRockGrabbed(rock, false);
+        this.physicsManager.setObjectGrabbed(obj, false);
       }
 
-      this.stateManager?.notifyChange({ action: 'rock_moved' });
+      // Se è una roccia, notifichiamo il sistema (il rastrello non salva la posizione)
+      if (obj.userData && obj.userData.kind !== 'rake') {
+        this.stateManager?.notifyChange({ action: 'rock_moved' });
+      }
     }
   }
 

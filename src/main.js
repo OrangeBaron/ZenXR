@@ -129,6 +129,9 @@ async function bootstrap() {
     physicsManager.addStaticFloor(garden.sand);
     physicsManager.addStaticBonsai(garden.bonsai);
     garden.rocks.forEach(rock => physicsManager.addRock(rock));
+    if (garden.rake) {
+      physicsManager.addRake(garden.rake);
+    }
   }
 
   // Lo StateManager fa solo da "campanello" (nessun I/O, nessun THREE.js):

@@ -17,6 +17,7 @@ import * as THREE from 'three';
 import { createRock, serializeRock, deserializeRock } from './RockGenerator.js';
 import { createBonsai, serializeBonsai, deserializeBonsai } from './BonsaiGenerator.js';
 import { createPond, serializePond, deserializePond, isInsidePond, POND_SURFACE_LIFT, generatePondPebbles } from './PondGenerator.js';
+import { createRake } from './RakeGenerator.js';
 import { createMatcapTexture } from '../utils/MatcapTextureFactory.js';
 import {
   GARDEN_WIDTH,
@@ -81,6 +82,8 @@ export class GardenBase {
     } else {
       this._scatterRocks(rockCount);
     }
+
+    this._addRake();
   }
 
   /**
@@ -283,5 +286,17 @@ export class GardenBase {
       this.group.add(rock);
       this.rocks.push(rock);
     }
+  }
+
+  _addRake() {
+    this.rake = createRake();
+    
+    const offsetX = -(this.width / 2 + 0.15); 
+    const liftY = this.sandTopY + 0.1;
+    
+    this.rake.position.set(offsetX, liftY, 0);
+    this.rake.rotation.set(0, Math.PI - Math.PI / 6, 0); 
+    
+    this.group.add(this.rake);
   }
 }

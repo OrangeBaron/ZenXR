@@ -18,8 +18,8 @@ export class PhysicsManager {
   constructor() {
     this.world = null;
     this.meshBodyMap = new Map();
-    this.grabbedRocks = new Map(); // Mesh -> punto bersaglio mondiale corrente (rocce afferrate)
-    this.gardenLimits = null;      // Limiti locali della vasca usati dal controllo OOB in update()
+    this.grabbedObjects = new Map();
+    this.gardenLimits = null;
 
     this._worldPos = new THREE.Vector3();
     this._worldQuat = new THREE.Quaternion();
@@ -56,7 +56,6 @@ export class PhysicsManager {
     mesh.getWorldPosition(this._worldPos);
     mesh.getWorldQuaternion(this._worldQuat);
 
-    // Limiti locali della vasca, riusati da update() per il controllo OOB.
     this.gardenLimits = {
       hx: hx - 0.02, 
       hz: hz - 0.02,
@@ -69,15 +68,20 @@ export class PhysicsManager {
     
     const rigidBody = this.world.createRigidBody(bodyDesc);
     
+    // Il pavimento usa i gruppi di default (collide con tutto)
     const floorCollider = RAPIER.ColliderDesc.cuboid(hx, hy, hz);
     this.world.createCollider(floorCollider, rigidBody);
 
+    // Pareti: Appartenenza = Gruppo 2 (0x0002), Filtro = Solo Gruppo 1 (0x0001)
+    // (Le rocce hanno di default appartenenza a tutti i gruppi, quindi sbatteranno sui muri)
+    const wallGroups = 0x00020001;
+    
     const wallH = 1.0; 
     const wallT = 0.05; 
-    this.world.createCollider(RAPIER.ColliderDesc.cuboid(wallT, wallH, hz).setTranslation(-hx - wallT, wallH, 0), rigidBody);
-    this.world.createCollider(RAPIER.ColliderDesc.cuboid(wallT, wallH, hz).setTranslation(hx + wallT, wallH, 0), rigidBody);
-    this.world.createCollider(RAPIER.ColliderDesc.cuboid(hx + wallT * 2, wallH, wallT).setTranslation(0, wallH, -hz - wallT), rigidBody);
-    this.world.createCollider(RAPIER.ColliderDesc.cuboid(hx + wallT * 2, wallH, wallT).setTranslation(0, wallH, hz + wallT), rigidBody);
+    this.world.createCollider(RAPIER.ColliderDesc.cuboid(wallT, wallH, hz).setTranslation(-hx - wallT, wallH, 0).setCollisionGroups(wallGroups), rigidBody);
+    this.world.createCollider(RAPIER.ColliderDesc.cuboid(wallT, wallH, hz).setTranslation(hx + wallT, wallH, 0).setCollisionGroups(wallGroups), rigidBody);
+    this.world.createCollider(RAPIER.ColliderDesc.cuboid(hx + wallT * 2, wallH, wallT).setTranslation(0, wallH, -hz - wallT).setCollisionGroups(wallGroups), rigidBody);
+    this.world.createCollider(RAPIER.ColliderDesc.cuboid(hx + wallT * 2, wallH, wallT).setTranslation(0, wallH, hz + wallT).setCollisionGroups(wallGroups), rigidBody);
 
     this.meshBodyMap.set(mesh, rigidBody);
   }
@@ -141,17 +145,39 @@ export class PhysicsManager {
    * @param {THREE.Mesh} mesh Mesh della roccia.
    * @param {boolean} isGrabbed `true` per avviare la presa, `false` per rilasciarla.
    */
-  setRockGrabbed(mesh, isGrabbed) {
+  setObjectGrabbed(mesh, isGrabbed, handQuat = null) {
     const body = this.meshBodyMap.get(mesh);
     if (!body) return;
 
     if (isGrabbed) {
+      if (mesh === this.rakeMesh) {
+        body.setBodyType(RAPIER.RigidBodyType.Dynamic, true);
+      }
       body.setGravityScale(0, true);
-      this.grabbedRocks.set(mesh, new THREE.Vector3());
+
+      const offsetQuat = new THREE.Quaternion();
+      if (handQuat && mesh !== this.rakeMesh) {
+        const objectQuat = body.rotation();
+        const qObj = new THREE.Quaternion(objectQuat.x, objectQuat.y, objectQuat.z, objectQuat.w);
+        offsetQuat.copy(handQuat).invert().multiply(qObj);
+      }
+
+      this.grabbedObjects.set(mesh, {
+        pos: new THREE.Vector3(), 
+        quat: new THREE.Quaternion(),
+        offsetQuat: offsetQuat 
+      });
     } else {
-      body.setGravityScale(1, true);
-      this.grabbedRocks.delete(mesh);
-      body.wakeUp(); // Rapier può aver messo il corpo in sleep: lo riattiva esplicitamente.
+      if (mesh === this.rakeMesh) {
+        body.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, true);
+        body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+        body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+      } else {
+        body.setGravityScale(1.0, true);
+      }
+
+      this.grabbedObjects.delete(mesh);
+      body.wakeUp();
     }
   }
 
@@ -161,10 +187,56 @@ export class PhysicsManager {
    * @param {THREE.Mesh} mesh Mesh della roccia afferrata.
    * @param {THREE.Vector3} targetWorldPos Nuovo punto bersaglio, in coordinate mondo.
    */
-  moveGrabbedRock(mesh, targetWorldPos) {
-    if (this.grabbedRocks.has(mesh)) {
-      this.grabbedRocks.get(mesh).copy(targetWorldPos);
+  moveGrabbedObject(mesh, targetWorldPos, targetWorldQuat = null) {
+    if (this.grabbedObjects.has(mesh)) {
+      const data = this.grabbedObjects.get(mesh);
+      data.pos.copy(targetWorldPos);
+      if (targetWorldQuat) {
+        data.quat.copy(targetWorldQuat);
+      }
     }
+  }
+  
+  /**
+   * Crea un corpo rigido dinamico per il rastrello con un collider composto.
+   * Ogni parte (manico, traversa, denti) diventa un collider attaccato allo stesso corpo,
+   * garantendo collisioni dure ed esatte con sabbia e oggetti.
+   */
+  addRake(rakeGroup) {
+    rakeGroup.getWorldPosition(this._worldPos);
+    rakeGroup.getWorldQuaternion(this._worldQuat);
+
+    const bodyDesc = RAPIER.RigidBodyDesc.dynamic()
+      .setTranslation(this._worldPos.x, this._worldPos.y, this._worldPos.z)
+      .setRotation(this._worldQuat)
+      .setLinearDamping(0.8)
+      .setAngularDamping(0.8)
+      .setGravityScale(0.0)
+      .setCcdEnabled(true);
+        
+    const rigidBody = this.world.createRigidBody(bodyDesc);
+    
+    rigidBody.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, true);
+
+    rakeGroup.traverse((child) => {
+      if (child.isMesh) {
+        const positions = new Float32Array(serializeGeometryPositions(child.geometry));
+        const rakeGroups = 0x0004FFFD;
+        
+        const colliderDesc = RAPIER.ColliderDesc.convexHull(positions)
+          .setTranslation(child.position.x, child.position.y, child.position.z)
+          .setRotation(child.quaternion)
+          .setDensity(800.0) 
+          .setFriction(0.8)
+          .setRestitution(0.0)
+          .setCollisionGroups(rakeGroups);
+
+        this.world.createCollider(colliderDesc, rigidBody);
+      }
+    });
+
+    this.meshBodyMap.set(rakeGroup, rigidBody);
+    this.rakeMesh = rakeGroup; 
   }
 
   /**
@@ -180,22 +252,45 @@ export class PhysicsManager {
     let dt = this.clock.getDelta();
     if (dt === 0) dt = 1 / 60; // Fallback di sicurezza contro un delta nullo (es. primo frame).
 
-    // Applica alle rocce afferrate una velocità diretta verso il punto della
-    // mano (grab basato su velocità, non su teletrasporto cinematico, per
-    // generare collisioni fisicamente plausibili con l'ambiente).
-    for (const [mesh, targetPos] of this.grabbedRocks) {
+    // Applica velocità e rotazione a TUTTI gli oggetti afferrati (Velocity-based grab)
+    for (const [mesh, targetData] of this.grabbedObjects) {
       const body = this.meshBodyMap.get(mesh);
       if (!body) continue;
 
       const currentPos = body.translation();
-      const smooth = 0.4; // Fattore di smorzamento per evitare scatti improvvisi verso il bersaglio.
+      const smooth = 0.4; 
 
-      const vx = ((targetPos.x - currentPos.x) / dt) * smooth;
-      const vy = ((targetPos.y - currentPos.y) / dt) * smooth;
-      const vz = ((targetPos.z - currentPos.z) / dt) * smooth;
+      const vx = ((targetData.pos.x - currentPos.x) / dt) * smooth;
+      const vy = ((targetData.pos.y - currentPos.y) / dt) * smooth;
+      const vz = ((targetData.pos.z - currentPos.z) / dt) * smooth;
 
       body.setLinvel({ x: vx, y: vy, z: vz }, true);
-      body.setAngvel({ x: 0, y: 0, z: 0 }, true); // Blocca la rotazione mentre l'oggetto è in mano.
+
+      // Applica la rotazione fisica
+      if (targetData.quat) {
+        const currentQuat = body.rotation();
+        const q0 = new THREE.Quaternion(currentQuat.x, currentQuat.y, currentQuat.z, currentQuat.w);
+        
+        // Moltiplica la rotazione della mano per l'offset calcolato alla presa
+        const q1 = targetData.quat.clone().multiply(targetData.offsetQuat);
+        
+        const qDiff = q1.clone().multiply(q0.clone().invert());
+        const angle = 2 * Math.acos(THREE.MathUtils.clamp(qDiff.w, -1, 1));
+        const s = Math.sqrt(1 - qDiff.w * qDiff.w);
+        
+        let rx = qDiff.x, ry = qDiff.y, rz = qDiff.z;
+        if (s > 0.001) { rx /= s; ry /= s; rz /= s; }
+        
+        let normAngle = angle;
+        if (normAngle > Math.PI) normAngle -= 2 * Math.PI;
+        
+        const smoothRot = 0.3; 
+        body.setAngvel({
+          x: (rx * normAngle / dt) * smoothRot,
+          y: (ry * normAngle / dt) * smoothRot,
+          z: (rz * normAngle / dt) * smoothRot
+        }, true);
+      }
     }
 
     this.world.step();
@@ -215,9 +310,8 @@ export class PhysicsManager {
           mesh.parent.getWorldQuaternion(this._parentQuat);
           this._worldQuat.premultiply(this._parentQuat.invert());
 
-          // Controllo OOB: ripristina la posizione entro i confini della
-          // vasca se il corpo li ha superati.
-          if (this.gardenLimits) {
+          // --- CONTROLLO OOB: Solo per le ROCCE (esclude il rastrello) ---
+          if (this.gardenLimits && mesh !== this.rakeMesh) {
             let oob = false;
             if (this._worldPos.x < -this.gardenLimits.hx) { this._worldPos.x = -this.gardenLimits.hx; oob = true; }
             if (this._worldPos.x > this.gardenLimits.hx) { this._worldPos.x = this.gardenLimits.hx; oob = true; }
