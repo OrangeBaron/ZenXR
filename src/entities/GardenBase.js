@@ -33,6 +33,45 @@ import {
 const POND_SHORE_MARGIN = 0.03;
 
 /**
+ * Genera proceduralmente una texture granulosa per simulare la sabbia.
+ */
+function createSandNoiseTexture() {
+  const size = 512;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+
+  // Colore di base della sabbia
+  ctx.fillStyle = '#d9c9a3';
+  ctx.fillRect(0, 0, size, size);
+
+  // Aggiungiamo 100.000 "granelli" di rumore casuale
+  for (let i = 0; i < 100000; i++) {
+    const x = Math.random() * size;
+    const y = Math.random() * size;
+    const isDark = Math.random() > 0.5;
+    
+    // Granelli leggermente più scuri o più chiari della base
+    ctx.fillStyle = isDark ? 'rgba(180, 160, 120, 0.4)' : 'rgba(240, 230, 200, 0.5)';
+    ctx.fillRect(x, y, 1, 1); // Disegna un pixel
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  // Ripetiamo la texture per renderla fittissima
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(4, 4); // Moltiplica la densità dei granelli per 4
+  
+  // Opzionale: migliora il filtro per non farla sfarfallare da lontano
+  texture.anisotropy = 4; 
+  return texture;
+}
+
+// Memorizziamo la texture per non ricrearla se si ricarica il giardino
+const sandBaseTexture = createSandNoiseTexture();
+
+/**
  * Base fisica del giardino zen: gestisce costruzione, disposizione casuale
  * degli elementi e persistenza dello stato tramite `getState()`.
  */
@@ -45,9 +84,10 @@ export class GardenBase {
    * @param {number} [options.depth=GARDEN_DEPTH] Profondità della vasca in metri.
    * @param {number} [options.rockCount=8] Numero di rocce da disporre inizialmente (ignorato se `savedState` è presente).
    * @param {Object|null} [options.savedState=null] Stato prodotto da `getState()` e riletto da `SaveSystem`:
-   *   se presente, rocce e albero vengono ripristinati esattamente invece di essere rigenerati casualmente.
+   * se presente, rocce e albero vengono ripristinati esattamente invece di essere rigenerati casualmente.
+   * @param {THREE.Texture|null} [options.sandTexture=null] La mappa di bump dinamica fornita da SandSurfaceManager.
    */
-  constructor({ width = GARDEN_WIDTH, depth = GARDEN_DEPTH, rockCount = 8, savedState = null } = {}) {
+  constructor({ width = GARDEN_WIDTH, depth = GARDEN_DEPTH, rockCount = 8, savedState = null, sandTexture = null } = {}) {
     this.width = width;
     this.depth = depth;
     this.rocks = [];
@@ -56,7 +96,7 @@ export class GardenBase {
     this.group.visible = false;
 
     this._buildTray();
-    this._buildSand();
+    this._buildSand(sandTexture); // Passiamo la texture dinamica
     this._buildBambooFence();
 
     if (savedState?.pond) {
@@ -124,17 +164,46 @@ export class GardenBase {
     this.sandTopY = trayHeight;
   }
 
-  _buildSand() {
+  /**
+   * Costruisce il blocco di sabbia e applica la texture di bump se presente.
+   * @param {THREE.Texture|null} sandTexture
+   */
+  _buildSand(sandTexture) {
     const sandHeight = 0.015;
-    const sandMaterial = new THREE.MeshMatcapMaterial({
-      matcap: createMatcapTexture(0xd9c9a3),
-      flatShading: true,
-    });
+    
+    const matProperties = {
+      map: sandBaseTexture, // <-- AGGIUNGIAMO LA TEXTURE GRANULOSA
+      color: 0xffffff,      // Mettiamo il colore base a bianco per far dominare la texture
+      roughness: 1.0,       // Sabbia completamente opaca
+      metalness: 0.0,
+    };
 
-    const sandGeometry = new THREE.BoxGeometry(this.width, sandHeight, this.depth);
+    if (sandTexture) {
+      // 1. DISPLACEMENT
+      matProperties.displacementMap = sandTexture;
+      matProperties.displacementScale = 0.006; 
+      matProperties.displacementBias = -0.006; 
+
+      // 2. BUMP
+      matProperties.bumpMap = sandTexture;
+      matProperties.bumpScale = 0.004; 
+      
+      // 3. AMBIENT OCCLUSION
+      matProperties.aoMap = sandTexture;
+      matProperties.aoMapIntensity = 0.6;
+    }
+
+    const sandMaterial = new THREE.MeshStandardMaterial(matProperties);
+
+    const sandGeometry = new THREE.BoxGeometry(this.width, sandHeight, this.depth, 200, 1, 200);
+    
+    // TRUCCO OBBLIGATORIO PER THREE.JS: Copiamo le UV nel canale uv2 per far funzionare l'aoMap
+    sandGeometry.setAttribute('uv2', new THREE.BufferAttribute(sandGeometry.attributes.uv.array, 2));
+    
     this.sand = new THREE.Mesh(sandGeometry, sandMaterial);
     this.sand.position.y = this.sandTopY + sandHeight / 2;
     this.sand.receiveShadow = true;
+    this.sand.castShadow = true; 
     this.group.add(this.sand);
 
     this.sandTopY += sandHeight;
@@ -181,8 +250,8 @@ export class GardenBase {
    * raggi proporzionalmente a larghezza/profondità (stesso fattore `k` per
    * entrambi, per non deformare le proporzioni) così che quest'area risulti
    * circa `POND_AREA_RATIO` della superficie totale della vasca:
-   *   π·(k·width)·(k·depth)/4 = POND_AREA_RATIO·width·depth
-   *   ⇒ k = √(4·POND_AREA_RATIO / π)
+   * π·(k·width)·(k·depth)/4 = POND_AREA_RATIO·width·depth
+   * ⇒ k = √(4·POND_AREA_RATIO / π)
    * @returns {THREE.Mesh}
    */
   _createPondLayout() {
@@ -204,7 +273,7 @@ export class GardenBase {
 
   /**
    * Campiona un punto casuale "asciutto" all'interno della vasca (fuori
-   * dall'acqua e, opzionalmente, a debita distanza da un altro punto) per il
+   * dall'acqua e, opzionalmente, a debita distanza da un outro punto) per il
    * posizionamento di bonsai e rocce. Poiché il laghetto occupa al più
    * `POND_AREA_RATIO` della vasca, l'area asciutta è sempre ampiamente
    * maggioritaria: pochi tentativi bastano quasi sempre.

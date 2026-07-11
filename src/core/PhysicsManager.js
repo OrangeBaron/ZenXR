@@ -227,7 +227,7 @@ export class PhysicsManager {
           .setTranslation(child.position.x, child.position.y, child.position.z)
           .setRotation(child.quaternion)
           .setDensity(800.0) 
-          .setFriction(0.8)
+          .setFriction(0.15)
           .setRestitution(0.0)
           .setCollisionGroups(rakeGroups);
 

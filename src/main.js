@@ -10,6 +10,7 @@
  * Architettura: Vanilla JS (ES6+) senza framework UI né bundler; gli import
  * "bare" sono risolti tramite Import Map in `index.html`.
  */
+import * as THREE from 'three';
 import GUI from 'lil-gui';
 import { SceneManager } from './core/SceneManager.js';
 import { XRManager } from './core/XRManager.js';
@@ -17,11 +18,12 @@ import { XRInteractionManager } from './core/XRInteractionManager.js';
 import { HandTrackingManager } from './core/HandTrackingManager.js';
 import { HandOcclusionManager } from './core/HandOcclusionManager.js';
 import { StateManager } from './core/StateManager.js';
+import { PhysicsManager } from './core/PhysicsManager.js';
+import { LeafFallManager } from './core/LeafFallManager.js';
+import { SandSurfaceManager } from './core/SandSurfaceManager.js';
 import { PlacementPreview } from './entities/PlacementPreview.js';
 import { GardenBase } from './entities/GardenBase.js';
 import { loadGardenState, saveGardenState, clearGardenState } from './utils/SaveSystem.js';
-import { PhysicsManager } from './core/PhysicsManager.js';
-import { LeafFallManager } from './core/LeafFallManager.js';
 
 /** Ritardo (ms) del debounce fra una notifica di modifica e il salvataggio effettivo. */
 const SAVE_DEBOUNCE_MS = 1000;
@@ -36,19 +38,16 @@ function removeBootOverlay() {
 
 /**
  * Crea e collega il pannello lil-gui di debug per i parametri procedurali.
- * Il pannello è un overlay DOM: durante la sessione immersiva il compositor
- * WebXR sostituisce la vista di pagina con il rendering stereo, quindi il
- * pannello risulta già "nascosto in visore" e visibile solo su monitor
- * desktop. Lo nascondiamo comunque esplicitamente per pulizia.
  *
  * @param {SceneManager} sceneManager
  * @param {PlacementPreview} placementPreview
  * @param {GardenBase} garden
  * @param {StateManager} stateManager
+ * @param {SandSurfaceManager} sandSurfaceManager
  * @param {() => void} onResetMemory Azzera il salvataggio e ricarica il giardino.
  * @returns {GUI}
  */
-function createDebugGUI(sceneManager, placementPreview, garden, stateManager, onResetMemory) {
+function createDebugGUI(sceneManager, placementPreview, garden, stateManager, sandSurfaceManager, onResetMemory) {
   const gui = new GUI({ title: 'ZenXR • Debug' });
 
   const lightsFolder = gui.addFolder('Illuminazione (provvisoria)');
@@ -62,9 +61,6 @@ function createDebugGUI(sceneManager, placementPreview, garden, stateManager, on
     .onChange((hex) => placementPreview.mesh.material.color.set(hex));
   previewFolder.add(placementPreview.mesh.material, 'opacity', 0, 1, 0.01).name('Opacità');
 
-  // Affordance di debug per testare la generazione procedurale su desktop,
-  // dove non è disponibile alcun grilletto/pinch per innescare l'evento
-  // 'select' della sessione XR.
   const gardenFolder = gui.addFolder('Giardino (debug desktop)');
   gardenFolder
     .add(
@@ -73,28 +69,34 @@ function createDebugGUI(sceneManager, placementPreview, garden, stateManager, on
           garden.group.position.set(0, 0, -1);
           garden.group.rotation.set(0, Math.PI, 0);
           garden.group.visible = true;
-          startGardenPhysics();
+          startGardenPhysics(); // La funzione sarà iniettata da bootstrap
         },
       },
       'mostra'
     )
     .name('Mostra al centro');
+  
+  // Tasto di debug per cancellare manualmente i solchi della sabbia
+  gardenFolder
+    .add({ pulisciSabbia: () => {
+      sandSurfaceManager.clear();
+      stateManager.notifyChange();
+    } }, 'pulisciSabbia')
+    .name('Pulisci Sabbia (Debug)');
 
-  // Azione di debug in sostituzione del futuro rituale fisico del gong
-  // ("colpirlo 3 volte per ripulire il giardino").
   const memoryFolder = gui.addFolder('Memoria');
   memoryFolder
     .add({ reset: onResetMemory }, 'reset')
     .name('Reset memoria giardino');
-
-  // Simula un'interazione con un oggetto del giardino per verificare che il
-  // debounce e il salvataggio dinamico via StateManager funzionino.
   memoryFolder
     .add({ simula: () => stateManager.notifyChange() }, 'simula')
     .name('Simula modifica e salva');
 
   return gui;
 }
+
+// Iniezione dipendenza per permettere alla GUI di avviare la fisica su desktop
+let startGardenPhysics = () => {};
 
 /**
  * Bootstrap dell'applicazione. Inizializza scena, sessione XR, anteprima di
@@ -109,21 +111,29 @@ async function bootstrap() {
   const physicsManager = new PhysicsManager();
   await physicsManager.init();
 
+  // Inizializza il manager della sabbia passando il renderer
+  const sandSurfaceManager = new SandSurfaceManager(sceneManager.renderer);
+
   const placementPreview = new PlacementPreview();
   sceneManager.scene.add(placementPreview.mesh);
 
-  // Al primo avvio non c'è nulla da ripristinare, quindi il giardino nasce
-  // dalla generazione procedurale casuale e viene salvato subito, per non
-  // rigenerare rocce/albero diversi a ogni ricarica.
   const savedState = loadGardenState();
-  const garden = new GardenBase({ savedState });
+  const garden = new GardenBase({ 
+    savedState, 
+    sandTexture: sandSurfaceManager.getTexture() 
+  });
   sceneManager.scene.add(garden.group);
+
+  if (savedState && savedState.sand) {
+    sandSurfaceManager.restoreFromBase64(savedState.sand);
+  }
+  
   if (!savedState) {
     saveGardenState(garden.getState());
   }
 
   let physicsReady = false;
-  function startGardenPhysics() {
+  startGardenPhysics = () => {
     if (physicsReady) return;
     physicsReady = true;
     physicsManager.addStaticFloor(garden.sand);
@@ -132,21 +142,23 @@ async function bootstrap() {
     if (garden.rake) {
       physicsManager.addRake(garden.rake);
     }
-  }
+  };
 
-  // Lo StateManager fa solo da "campanello" (nessun I/O, nessun THREE.js):
-  // è main.js a decidere come reagire alle notifiche di modifica, qui con
-  // un debounce per non scrivere su LocalStorage a ogni interazione.
   const stateManager = new StateManager();
   let saveDebounceTimer = null;
   stateManager.onChange(() => {
     clearTimeout(saveDebounceTimer);
     saveDebounceTimer = setTimeout(() => {
-      saveGardenState(garden.getState());
+      const state = garden.getState();
+      
+      state.sand = sandSurfaceManager.exportBase64(); 
+      
+      saveGardenState(state);
+      console.log('[ZenXR] Stato del giardino salvato con successo.');
     }, SAVE_DEBOUNCE_MS);
   });
 
-  const gui = createDebugGUI(sceneManager, placementPreview, garden, stateManager, () => {
+  const gui = createDebugGUI(sceneManager, placementPreview, garden, stateManager, sandSurfaceManager, () => {
     clearGardenState();
     window.location.reload();
   });
@@ -176,9 +188,6 @@ async function bootstrap() {
     garden: garden
   });
 
-  // Mappa le mani dell'utente e gestisce il pinch delle foglie secche del
-  // bonsai. Ogni foglia potata notifica lo StateManager, che (tramite il
-  // listener sopra) fa scattare il debounce di salvataggio.
   const handTrackingManager = new HandTrackingManager({
     renderer: sceneManager.renderer,
     scene: sceneManager.scene,
@@ -189,15 +198,15 @@ async function bootstrap() {
     physicsManager: physicsManager
   });
 
-  // Sfere di occlusione invisibili agganciate ai giunti delle mani, così le
-  // mani reali dell'utente coprono correttamente gli oggetti virtuali del
-  // giardino invece di finire sempre "dietro" di essi.
   const handOcclusionManager = new HandOcclusionManager({
     renderer: sceneManager.renderer,
     scene: sceneManager.scene,
   });
 
   removeBootOverlay();
+
+  // Vettore pre-allocato per evitare garbage collection nel loop
+  const _tempToothPos = new THREE.Vector3();
 
   sceneManager.renderer.setAnimationLoop((_timestamp, frame) => {
     let pose = null;
@@ -212,13 +221,57 @@ async function bootstrap() {
     physicsManager.update();
     leafFallManager.update(pose);
 
+    // --- LOGICA DISEGNO SABBIA ---
+    if (garden.rake && garden.group.visible) {
+      garden.rake.updateMatrixWorld(true);
+
+      const segments = [];
+      const teeth = garden.rake.children.slice(2);
+      
+      for (const tooth of teeth) {
+        _tempToothPos.set(0, -0.025, 0);
+        tooth.localToWorld(_tempToothPos);
+        garden.group.worldToLocal(_tempToothPos);
+
+        const isTouching = _tempToothPos.y <= garden.sandTopY + 0.015;
+
+        if (isTouching) {
+          const currentPos = { x: _tempToothPos.x, z: _tempToothPos.z };
+          
+          if (tooth.userData.lastPos) {
+            // Evita di disegnare micro-segmenti se il rastrello è praticamente fermo
+            const dist = Math.hypot(currentPos.x - tooth.userData.lastPos.x, currentPos.z - tooth.userData.lastPos.z);
+            if (dist > 0.0005) { 
+              segments.push({ start: tooth.userData.lastPos, end: currentPos });
+              tooth.userData.lastPos = currentPos;
+            }
+          } else {
+            // È il primissimo frame di contatto, salviamo il punto di partenza
+            tooth.userData.lastPos = currentPos;
+          }
+        } else {
+          // Il dente si è sollevato, resettiamo il tracciamento
+          tooth.userData.lastPos = null;
+        }
+      }
+
+      if (segments.length > 0) {
+        sandSurfaceManager.drawStrokes(segments);
+        
+        const tex = sandSurfaceManager.getTexture();
+        garden.sand.material.displacementMap = tex;
+        garden.sand.material.bumpMap = tex;
+        garden.sand.material.aoMap = tex;
+
+        stateManager.notifyChange();
+      }
+    }
+    // -----------------------------
+
     sceneManager.render();
   });
 }
 
-// Se lo script viene eseguito prima del parsing completo del DOM, l'avvio
-// va posticipato a DOMContentLoaded; altrimenti l'evento è già passato e
-// bootstrap() va invocato subito.
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', () => bootstrap(), { once: true });
 } else {
