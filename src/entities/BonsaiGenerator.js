@@ -2,34 +2,86 @@
  * Genera proceduralmente un bonsai stilizzato tramite un sistema di
  * ramificazione ricorsivo (L-System semplificato), ed espone la sua
  * serializzazione/deserializzazione per la persistenza dello stato.
- *
- * Tronco e rami non sono singoli cilindri dritti: ogni "arto" è una catena
- * di brevi segmenti (CylinderGeometry) con una leggera inclinazione casuale
- * accumulata tra un segmento e il successivo, per ottenere la silhouette
- * spessa, nodosa e contorta di un bonsai reale invece di un tronco dritto
- * e sottile.
- *
- * Il fogliame è composto da piccoli gruppi di foglioline individuali
- * (icosaedri appiattiti ed elongati), per lo più coerenti in colore e
- * dimensione ma con un'occasionale foglia "secca" (colore bruno, spesso più
- * piccola), destinata a essere rimossa durante la potatura. Ogni foglia
- * porta `userData.isDry` per essere riconosciuta a runtime.
- *
- * Non gestisce potatura, crescita nel tempo o interazione con
- * l'hand-tracking.
  */
 import * as THREE from 'three';
 import { createMatcapTexture } from '../utils/MatcapTextureFactory.js';
 import { serializeGeometryPositions, geometryFromPositions } from '../utils/GeometrySerializer.js';
 
+/**
+ * Genera proceduralmente una texture per simulare la corteccia rugosa del bonsai.
+ */
+function createBarkNoiseTexture() {
+  const size = 512;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+
+  // Colore di base neutro-caldo
+  ctx.fillStyle = '#b8a08c';
+  ctx.fillRect(0, 0, size, size);
+
+  // 1. Striature verticali (venature larghe della corteccia)
+  ctx.filter = 'blur(4px)';
+  for (let i = 0; i < 40; i++) {
+    ctx.beginPath();
+    const xOffset = Math.random() * size;
+    ctx.moveTo(xOffset, -50);
+    // Curve che scendono verticalmente ondeggiando leggermente
+    ctx.bezierCurveTo(
+      xOffset + (Math.random() - 0.5) * 40, size * 0.33,
+      xOffset + (Math.random() - 0.5) * 40, size * 0.66,
+      xOffset + (Math.random() - 0.5) * 40, size + 50
+    );
+    ctx.lineWidth = 4 + Math.random() * 8;
+    ctx.strokeStyle = Math.random() > 0.5 ? 'rgba(60, 40, 20, 0.4)' : 'rgba(100, 70, 50, 0.3)';
+    ctx.stroke();
+  }
+  
+  // 2. Crepe profonde (segni netti tipici del legno invecchiato)
+  ctx.filter = 'blur(1px)';
+  for (let i = 0; i < 20; i++) {
+    ctx.beginPath();
+    const xOffset = Math.random() * size;
+    ctx.moveTo(xOffset, -50);
+    ctx.lineTo(xOffset + (Math.random() - 0.5) * 20, size + 50);
+    ctx.lineWidth = 1 + Math.random() * 3;
+    ctx.strokeStyle = 'rgba(30, 15, 5, 0.6)';
+    ctx.stroke();
+  }
+  ctx.filter = 'none';
+
+  // 3. Grana del legno (puntini allungati verticalmente)
+  for (let i = 0; i < 150000; i++) {
+    const x = Math.random() * size;
+    const y = Math.random() * size;
+    const isDark = Math.random() > 0.5;
+    
+    ctx.fillStyle = isDark ? 'rgba(40, 25, 15, 0.3)' : 'rgba(255, 255, 255, 0.2)';
+    // Disegniamo rettangolini invece di quadrati perfetti per seguire la venatura
+    ctx.fillRect(x, y, 1, Math.random() * 4 + 1); 
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  // I cilindri mappano la texture in tondo (U) e in lunghezza (V).
+  // Ripetiamo di più sulla lunghezza (Y) per far scorrere le venature.
+  texture.repeat.set(2, 4); 
+  texture.anisotropy = 4;
+  return texture;
+}
+
+const barkBaseTexture = createBarkNoiseTexture();
+
 const barkMaterial = new THREE.MeshMatcapMaterial({
   matcap: createMatcapTexture(0x5a3d2b),
+  map: barkBaseTexture,
+  bumpMap: barkBaseTexture,
+  bumpScale: 0.015, // Un bel rilievo per far "grattare" visivamente la corteccia
   flatShading: true,
 });
 
-// Matcap neutro e chiaro per le foglie: la colorazione vera e propria (verde
-// sano o bruno secco) viene applicata per-foglia tramite `material.color`,
-// così una sola texture condivisa basta per tutte le variazioni cromatiche.
 const LEAF_MATCAP = createMatcapTexture(0xe4e4e0);
 
 const UP_AXIS = new THREE.Vector3(0, 1, 0);
@@ -38,17 +90,6 @@ const TILT_AXIS = new THREE.Vector3(1, 0, 0);
 const TRUNK_SEGMENTS = 3;
 const BEND_STRENGTH = 0.34;
 
-/**
- * Costruisce un "arto" (tronco o ramo) come una catena di brevi segmenti
- * cilindrici, ciascuno leggermente e casualmente inclinato rispetto al
- * precedente e con un piccolo rumore sul raggio ai giunti. Il risultato,
- * invece di un singolo cilindro dritto e liscio, è una forma spessa,
- * nodosa e contorta.
- *
- * @returns {{ root: THREE.Group, tip: THREE.Group }} `root` va aggiunto al
- *   genitore; `tip` è il punto (con l'orientamento accumulato) da cui far
- *   proseguire rami figli o attaccare il fogliame.
- */
 function createSegmentedLimb({ length, baseRadius, tipRadius, segments, bendStrength }) {
   const root = new THREE.Group();
   let current = root;
@@ -64,7 +105,7 @@ function createSegmentedLimb({ length, baseRadius, tipRadius, segments, bendStre
     geometry.translate(0, segmentLength / 2, 0);
     const mesh = new THREE.Mesh(geometry, barkMaterial);
     mesh.castShadow = true;
-    mesh.userData.kind = 'branch'; // marcatura usata dal (de)serializzatore di stato
+    mesh.userData.kind = 'branch'; 
     current.add(mesh);
 
     const nextJoint = new THREE.Group();
@@ -81,27 +122,16 @@ function createSegmentedLimb({ length, baseRadius, tipRadius, segments, bendStre
   return { root, tip: current };
 }
 
-/**
- * Aggiunge una piccola chioma di foglioline individuali al punto `tip`.
- * La maggior parte delle foglie condivide colore/forma/dimensione entro un
- * intervallo stretto; una minoranza ("secche") è cromaticamente e
- * dimensionalmente difforme — sono i candidati alla potatura.
- *
- * @param {THREE.Group} tip Punto di attacco (fine di un ramo terminale).
- * @param {number} branchLength Lunghezza del ramo terminale, usata come scala.
- */
 function addFoliageCluster(tip, branchLength) {
-  const leafCount = 4 + Math.floor(Math.random() * 3); // 4-6 foglie
+  const leafCount = 4 + Math.floor(Math.random() * 3); 
   const spread = branchLength * 0.7;
 
   for (let i = 0; i < leafCount; i++) {
     const isDry = Math.random() < 0.12;
-
     const baseRadius = 0.014 + Math.random() * 0.006;
     const sizeFactor = isDry ? 0.55 + Math.random() * 0.4 : 0.9 + Math.random() * 0.25;
 
     const leafGeometry = new THREE.IcosahedronGeometry(baseRadius * sizeFactor, 0);
-    // Appiattita ed elongata: una fogliolina, non una sfera.
     leafGeometry.scale(0.55, 1.7, 0.22);
 
     const color = new THREE.Color();
@@ -125,25 +155,13 @@ function addFoliageCluster(tip, branchLength) {
     );
     leaf.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
     leaf.castShadow = true;
-    leaf.userData.isDry = isDry; // marcatura usata per riconoscere le foglie da potare
-    leaf.userData.kind = 'leaf'; // marcatura usata dal (de)serializzatore di stato
+    leaf.userData.isDry = isDry; 
+    leaf.userData.kind = 'leaf'; 
 
     tip.add(leaf);
   }
 }
 
-/**
- * Crea ricorsivamente un ramo (o il tronco, alla prima chiamata): un arto
- * segmentato e contorto, che ai livelli intermedi si dirama in altri rami
- * figli e ai rami terminali porta una chioma di foglioline.
- *
- * @param {Object} params
- * @param {number} params.length Lunghezza dell'arto corrente.
- * @param {number} params.radius Raggio alla base dell'arto corrente.
- * @param {number} params.depth Profondità di ricorsione residua.
- * @param {number} params.segments Numero di segmenti della catena per questo arto.
- * @returns {THREE.Group} Gruppo con base nell'origine locale, arto lungo +Y.
- */
 function createBranch({ length, radius, depth, segments }) {
   const group = new THREE.Group();
 
@@ -162,7 +180,7 @@ function createBranch({ length, radius, depth, segments }) {
     return group;
   }
 
-  const childCount = 2 + Math.floor(Math.random() * 2); // 2 o 3 rami figli
+  const childCount = 2 + Math.floor(Math.random() * 2); 
   for (let i = 0; i < childCount; i++) {
     const childGroup = createBranch({
       length: length * (0.6 + Math.random() * 0.15),
@@ -171,8 +189,6 @@ function createBranch({ length, radius, depth, segments }) {
       segments: Math.max(2, segments - 1),
     });
 
-    // Inclinazione verso l'esterno + rotazione azimutale casuale attorno al
-    // ramo genitore, per una silhouette organica e non simmetrica.
     const azimuth = Math.random() * Math.PI * 2;
     const tilt = 0.35 + Math.random() * 0.5;
     const qAzimuth = new THREE.Quaternion().setFromAxisAngle(UP_AXIS, azimuth);
@@ -185,14 +201,6 @@ function createBranch({ length, radius, depth, segments }) {
   return group;
 }
 
-/**
- * Genera un bonsai completo, con base nell'origine locale.
- * @param {Object} [options]
- * @param {number} [options.trunkHeight=0.36] Altezza del tronco principale (metri).
- * @param {number} [options.trunkRadius=0.035] Raggio alla base del tronco (metri).
- * @param {number} [options.branchDepth=3] Profondità di ricorsione dei rami.
- * @returns {THREE.Group}
- */
 export function createBonsai({
   trunkHeight = 0.36,
   trunkRadius = 0.035,
@@ -206,26 +214,10 @@ export function createBonsai({
   });
 }
 
-/**
- * Serializza ricorsivamente l'intero albero (gruppi, segmenti di rami e
- * foglie) in un oggetto JSON-serializzabile, per la persistenza tramite
- * `SaveSystem`. Vengono salvati forma (vertici), colore e trasformazione
- * locale di ogni nodo, così il ripristino ricrea l'identica geometria
- * generata proceduralmente invece di rigenerarne una nuova casuale.
- *
- * @param {THREE.Group} bonsai Radice dell'albero creata da `createBonsai`.
- * @returns {Object} Stato serializzabile dell'albero.
- */
 export function serializeBonsai(bonsai) {
   return serializeNode(bonsai);
 }
 
-/**
- * Serializza ricorsivamente un singolo nodo dell'albero (gruppo o mesh) e i
- * suoi figli, in coppia con `deserializeNode`.
- * @param {THREE.Object3D} object
- * @returns {Object}
- */
 function serializeNode(object) {
   const node = {
     position: object.position.toArray(),
@@ -235,7 +227,16 @@ function serializeNode(object) {
 
   if (object.isMesh) {
     node.kind = object.userData.kind;
+    
+    // Convertiamo in triangle-soup ma PRESERVIAMO LE UV
+    const flat = object.geometry.index ? object.geometry.toNonIndexed() : object.geometry;
     node.positions = serializeGeometryPositions(object.geometry);
+    
+    // Salviamo le coordinate UV per rami e foglie
+    if (flat.attributes.uv) {
+        node.uvs = Array.from(flat.attributes.uv.array);
+    }
+    
     if (node.kind === 'leaf') {
       node.color = object.material.color.getHex();
       node.isDry = !!object.userData.isDry;
@@ -245,22 +246,10 @@ function serializeNode(object) {
   return node;
 }
 
-/**
- * Ricostruisce l'albero (gruppi, rami e foglie) a partire dallo stato
- * prodotto da `serializeBonsai`.
- * @param {Object} data
- * @returns {THREE.Group}
- */
 export function deserializeBonsai(data) {
   return deserializeNode(data);
 }
 
-/**
- * Ricostruisce ricorsivamente un singolo nodo dell'albero (gruppo o mesh) e
- * i suoi figli, in coppia con `serializeNode`.
- * @param {Object} data
- * @returns {THREE.Object3D}
- */
 function deserializeNode(data) {
   const object = data.kind ? createNodeMesh(data) : new THREE.Group();
 
@@ -271,14 +260,21 @@ function deserializeNode(data) {
   return object;
 }
 
-/**
- * Ricrea la mesh (ramo o foglia) di un nodo a partire dai dati serializzati,
- * scegliendo materiale e marcature in base al tipo di nodo.
- * @param {Object} data
- * @returns {THREE.Mesh}
- */
 function createNodeMesh(data) {
   const geometry = geometryFromPositions(data.positions);
+  
+  // RIPRISTINIAMO LE UV
+  if (data.uvs) {
+    geometry.setAttribute('uv', new THREE.Float32BufferAttribute(data.uvs, 2));
+  } else {
+    // Fallback in caso di salvataggi vecchi senza UV (mappatura cilindrica approssimativa)
+    const uvs = [];
+    for(let i=0; i<data.positions.length; i+=3) {
+      uvs.push(data.positions[i] * 5, data.positions[i+1] * 5);
+    }
+    geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  }
+
   const isLeaf = data.kind === 'leaf';
 
   const material = isLeaf

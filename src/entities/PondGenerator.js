@@ -25,6 +25,7 @@
  */
 import * as THREE from 'three';
 import { createMatcapTexture } from '../utils/MatcapTextureFactory.js';
+import { rockBaseTexture } from './RockGenerator.js';
 import { serializeGeometryPositions, geometryFromPositions } from '../utils/GeometrySerializer.js';
 
 const POND_MATCAP_COLOR = 0x3f6d7a;
@@ -271,6 +272,9 @@ export function generatePondPebbles(pond, sandTopY) {
   const pebbleGeometry = new THREE.IcosahedronGeometry(0.02, 0);
   const pebbleMaterial = new THREE.MeshMatcapMaterial({
     matcap: createMatcapTexture(0x6e6b66),
+    map: rockBaseTexture,
+    bumpMap: rockBaseTexture,
+    bumpScale: 0.003,
     flatShading: true,
   });
 
