@@ -2,83 +2,18 @@
  * Genera proceduralmente un bonsai stilizzato tramite un sistema di
  * ramificazione ricorsivo (L-System semplificato), ed espone la sua
  * serializzazione/deserializzazione per la persistenza dello stato.
+ * La generazione delle texture è delegata a ProceduralTextureFactory.
  */
 import * as THREE from 'three';
 import { createMatcapTexture } from '../utils/MatcapTextureFactory.js';
 import { serializeGeometryPositions, geometryFromPositions } from '../utils/GeometrySerializer.js';
-
-/**
- * Genera proceduralmente una texture per simulare la corteccia rugosa del bonsai.
- */
-function createBarkNoiseTexture() {
-  const size = 512;
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext('2d');
-
-  // Colore di base neutro-caldo
-  ctx.fillStyle = '#b8a08c';
-  ctx.fillRect(0, 0, size, size);
-
-  // 1. Striature verticali (venature larghe della corteccia)
-  ctx.filter = 'blur(4px)';
-  for (let i = 0; i < 40; i++) {
-    ctx.beginPath();
-    const xOffset = Math.random() * size;
-    ctx.moveTo(xOffset, -50);
-    // Curve che scendono verticalmente ondeggiando leggermente
-    ctx.bezierCurveTo(
-      xOffset + (Math.random() - 0.5) * 40, size * 0.33,
-      xOffset + (Math.random() - 0.5) * 40, size * 0.66,
-      xOffset + (Math.random() - 0.5) * 40, size + 50
-    );
-    ctx.lineWidth = 4 + Math.random() * 8;
-    ctx.strokeStyle = Math.random() > 0.5 ? 'rgba(60, 40, 20, 0.4)' : 'rgba(100, 70, 50, 0.3)';
-    ctx.stroke();
-  }
-  
-  // 2. Crepe profonde (segni netti tipici del legno invecchiato)
-  ctx.filter = 'blur(1px)';
-  for (let i = 0; i < 20; i++) {
-    ctx.beginPath();
-    const xOffset = Math.random() * size;
-    ctx.moveTo(xOffset, -50);
-    ctx.lineTo(xOffset + (Math.random() - 0.5) * 20, size + 50);
-    ctx.lineWidth = 1 + Math.random() * 3;
-    ctx.strokeStyle = 'rgba(30, 15, 5, 0.6)';
-    ctx.stroke();
-  }
-  ctx.filter = 'none';
-
-  // 3. Grana del legno (puntini allungati verticalmente)
-  for (let i = 0; i < 150000; i++) {
-    const x = Math.random() * size;
-    const y = Math.random() * size;
-    const isDark = Math.random() > 0.5;
-    
-    ctx.fillStyle = isDark ? 'rgba(40, 25, 15, 0.3)' : 'rgba(255, 255, 255, 0.2)';
-    // Disegniamo rettangolini invece di quadrati perfetti per seguire la venatura
-    ctx.fillRect(x, y, 1, Math.random() * 4 + 1); 
-  }
-
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.wrapS = THREE.RepeatWrapping;
-  texture.wrapT = THREE.RepeatWrapping;
-  // I cilindri mappano la texture in tondo (U) e in lunghezza (V).
-  // Ripetiamo di più sulla lunghezza (Y) per far scorrere le venature.
-  texture.repeat.set(2, 4); 
-  texture.anisotropy = 4;
-  return texture;
-}
-
-const barkBaseTexture = createBarkNoiseTexture();
+import { barkBaseTexture, leafBaseTexture } from '../utils/ProceduralTextureFactory.js';
 
 const barkMaterial = new THREE.MeshMatcapMaterial({
   matcap: createMatcapTexture(0x5a3d2b),
   map: barkBaseTexture,
   bumpMap: barkBaseTexture,
-  bumpScale: 0.015, // Un bel rilievo per far "grattare" visivamente la corteccia
+  bumpScale: 0.015,
   flatShading: true,
 });
 
@@ -143,6 +78,9 @@ function addFoliageCluster(tip, branchLength) {
 
     const leafMaterial = new THREE.MeshMatcapMaterial({
       matcap: LEAF_MATCAP,
+      map: leafBaseTexture, 
+      bumpMap: leafBaseTexture,
+      bumpScale: 0.006,
       flatShading: true,
       color,
     });
@@ -228,11 +166,9 @@ function serializeNode(object) {
   if (object.isMesh) {
     node.kind = object.userData.kind;
     
-    // Convertiamo in triangle-soup ma PRESERVIAMO LE UV
     const flat = object.geometry.index ? object.geometry.toNonIndexed() : object.geometry;
     node.positions = serializeGeometryPositions(object.geometry);
     
-    // Salviamo le coordinate UV per rami e foglie
     if (flat.attributes.uv) {
         node.uvs = Array.from(flat.attributes.uv.array);
     }
@@ -263,11 +199,9 @@ function deserializeNode(data) {
 function createNodeMesh(data) {
   const geometry = geometryFromPositions(data.positions);
   
-  // RIPRISTINIAMO LE UV
   if (data.uvs) {
     geometry.setAttribute('uv', new THREE.Float32BufferAttribute(data.uvs, 2));
   } else {
-    // Fallback in caso di salvataggi vecchi senza UV (mappatura cilindrica approssimativa)
     const uvs = [];
     for(let i=0; i<data.positions.length; i+=3) {
       uvs.push(data.positions[i] * 5, data.positions[i+1] * 5);
@@ -278,7 +212,14 @@ function createNodeMesh(data) {
   const isLeaf = data.kind === 'leaf';
 
   const material = isLeaf
-    ? new THREE.MeshMatcapMaterial({ matcap: LEAF_MATCAP, flatShading: true, color: data.color })
+    ? new THREE.MeshMatcapMaterial({ 
+        matcap: LEAF_MATCAP, 
+        map: leafBaseTexture,
+        bumpMap: leafBaseTexture,
+        bumpScale: 0.006,
+        flatShading: true, 
+        color: data.color 
+      })
     : barkMaterial;
 
   const mesh = new THREE.Mesh(geometry, material);

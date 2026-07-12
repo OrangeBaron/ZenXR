@@ -25,8 +25,8 @@
  */
 import * as THREE from 'three';
 import { createMatcapTexture } from '../utils/MatcapTextureFactory.js';
-import { rockBaseTexture } from './RockGenerator.js';
 import { serializeGeometryPositions, geometryFromPositions } from '../utils/GeometrySerializer.js';
+import { rockBaseTexture } from '../utils/ProceduralTextureFactory.js'; // <--- IMPORT CORRETTO!
 
 const POND_MATCAP_COLOR = 0x3f6d7a;
 

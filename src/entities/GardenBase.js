@@ -19,6 +19,7 @@ import { createBonsai, serializeBonsai, deserializeBonsai } from './BonsaiGenera
 import { createPond, serializePond, deserializePond, isInsidePond, POND_SURFACE_LIFT, generatePondPebbles } from './PondGenerator.js';
 import { createRake } from './RakeGenerator.js';
 import { createMatcapTexture } from '../utils/MatcapTextureFactory.js';
+import { sandBaseTexture } from '../utils/ProceduralTextureFactory.js';
 import {
   GARDEN_WIDTH,
   GARDEN_DEPTH,
@@ -31,45 +32,6 @@ import {
 // scelgono punti "asciutti" per bonsai e rocce: evita che gli oggetti
 // tocchino visivamente il bordo dell'acqua.
 const POND_SHORE_MARGIN = 0.03;
-
-/**
- * Genera proceduralmente una texture granulosa per simulare la sabbia.
- */
-function createSandNoiseTexture() {
-  const size = 512;
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext('2d');
-
-  // Colore di base della sabbia
-  ctx.fillStyle = '#d9c9a3';
-  ctx.fillRect(0, 0, size, size);
-
-  // Aggiungiamo 100.000 "granelli" di rumore casuale
-  for (let i = 0; i < 100000; i++) {
-    const x = Math.random() * size;
-    const y = Math.random() * size;
-    const isDark = Math.random() > 0.5;
-    
-    // Granelli leggermente più scuri o più chiari della base
-    ctx.fillStyle = isDark ? 'rgba(180, 160, 120, 0.4)' : 'rgba(240, 230, 200, 0.5)';
-    ctx.fillRect(x, y, 1, 1); // Disegna un pixel
-  }
-
-  const texture = new THREE.CanvasTexture(canvas);
-  // Ripetiamo la texture per renderla fittissima
-  texture.wrapS = THREE.RepeatWrapping;
-  texture.wrapT = THREE.RepeatWrapping;
-  texture.repeat.set(4, 4); // Moltiplica la densità dei granelli per 4
-  
-  // Opzionale: migliora il filtro per non farla sfarfallare da lontano
-  texture.anisotropy = 4; 
-  return texture;
-}
-
-// Memorizziamo la texture per non ricrearla se si ricarica il giardino
-const sandBaseTexture = createSandNoiseTexture();
 
 /**
  * Base fisica del giardino zen: gestisce costruzione, disposizione casuale
@@ -172,9 +134,9 @@ export class GardenBase {
     const sandHeight = 0.015;
     
     const matProperties = {
-      map: sandBaseTexture, // <-- AGGIUNGIAMO LA TEXTURE GRANULOSA
-      color: 0xffffff,      // Mettiamo il colore base a bianco per far dominare la texture
-      roughness: 1.0,       // Sabbia completamente opaca
+      map: sandBaseTexture, // Usiamo la texture granulosa condivisa
+      color: 0xffffff,      
+      roughness: 1.0,       
       metalness: 0.0,
     };
 
@@ -218,14 +180,10 @@ export class GardenBase {
     });
     const poleGeometry = new THREE.CylinderGeometry(poleRadius, poleRadius, poleHeight, 6);
 
-    // Numero di pali derivato dalla larghezza per mantenere una densità
-    // costante anche se GARDEN_WIDTH cambia in futuro.
     const desiredSpacing = 0.08;
     const poleCount = Math.max(3, Math.round(this.width / desiredSpacing) + 1);
     const spacing = this.width / (poleCount - 1);
 
-    // Recinto stilizzato sul lato posteriore della vasca (+Z: lato opposto
-    // a quello rivolto verso l'utente al momento del posizionamento).
     for (let i = 0; i < poleCount; i++) {
       const pole = new THREE.Mesh(poleGeometry, poleMaterial);
       pole.position.set(
@@ -238,22 +196,6 @@ export class GardenBase {
     }
   }
 
-  /**
-   * Decide la "zona" del laghetto: la vasca viene ancorata a un angolo
-   * scelto a caso, così l'acqua tocca davvero il bordo della vasca (due lati
-   * del laghetto corrono lungo le due pareti dell'angolo, vedi
-   * `PondGenerator.js`) invece di restarne staccata al centro.
-   *
-   * Il laghetto è geometricamente un quarto di ellisse (raggi `radiusX`,
-   * `radiusZ`, angolo=vertice sull'angolo della vasca) con bordo interno
-   * irregolare: la sua area è `π · radiusX · radiusZ / 4`. Dimensioniamo i
-   * raggi proporzionalmente a larghezza/profondità (stesso fattore `k` per
-   * entrambi, per non deformare le proporzioni) così che quest'area risulti
-   * circa `POND_AREA_RATIO` della superficie totale della vasca:
-   * π·(k·width)·(k·depth)/4 = POND_AREA_RATIO·width·depth
-   * ⇒ k = √(4·POND_AREA_RATIO / π)
-   * @returns {THREE.Mesh}
-   */
   _createPondLayout() {
     const cornerX = Math.random() < 0.5 ? -1 : 1;
     const cornerZ = Math.random() < 0.5 ? -1 : 1;
@@ -271,19 +213,6 @@ export class GardenBase {
     return pond;
   }
 
-  /**
-   * Campiona un punto casuale "asciutto" all'interno della vasca (fuori
-   * dall'acqua e, opzionalmente, a debita distanza da un outro punto) per il
-   * posizionamento di bonsai e rocce. Poiché il laghetto occupa al più
-   * `POND_AREA_RATIO` della vasca, l'area asciutta è sempre ampiamente
-   * maggioritaria: pochi tentativi bastano quasi sempre.
-   *
-   * @param {Object} [options]
-   * @param {number} [options.wallMargin=0.05] Distanza minima dai bordi interni della vasca.
-   * @param {{x:number, z:number}|null} [options.avoidPoint=null] Punto da evitare (es. il bonsai).
-   * @param {number} [options.avoidRadius=0] Raggio di esclusione attorno ad `avoidPoint`.
-   * @returns {{x:number, z:number}}
-   */
   _randomDryPoint({ wallMargin = 0.05, avoidPoint = null, avoidRadius = 0 } = {}) {
     const halfWidth = this.width / 2 - wallMargin;
     const halfDepth = this.depth / 2 - wallMargin;
@@ -299,14 +228,10 @@ export class GardenBase {
 
       return point;
     }
-    // Caso limite non previsto dalla geometria (laghetto entro la propria
-    // zona di ~1/3): restituiamo l'ultimo tentativo invece di bloccare la
-    // generazione del giardino.
     return point;
   }
 
   _addBonsai() {
-    // Chioma ampia: più margine dai bordi rispetto alle rocce.
     this.bonsaiPosition = this._randomDryPoint({ wallMargin: 0.1 });
     this.bonsai = createBonsai();
     this.bonsai.position.set(this.bonsaiPosition.x, this.sandTopY, this.bonsaiPosition.z);
@@ -315,7 +240,7 @@ export class GardenBase {
 
   _scatterRocks(count) {
     const margin = 0.05;
-    const centerExclusionRadius = 0.16; // evita di sovrapporre il bonsai (ora in posizione variabile)
+    const centerExclusionRadius = 0.16;
 
     for (let i = 0; i < count; i++) {
       const { x, z } = this._randomDryPoint({
@@ -344,11 +269,6 @@ export class GardenBase {
     }
   }
 
-  /**
-   * Ricostruisce le rocce da uno stato salvato, al posto della dispersione
-   * casuale di `_scatterRocks`.
-   * @param {Object[]} rocksState Array prodotto da `serializeRock` per ogni roccia.
-   */
   _restoreRocks(rocksState) {
     for (const rockState of rocksState) {
       const rock = deserializeRock(rockState);
