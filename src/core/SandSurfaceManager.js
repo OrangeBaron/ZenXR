@@ -215,7 +215,10 @@ export class SandSurfaceManager {
    * @param {Blob} blobData Il Blob binario dell'immagine.
    */
   restoreFromBlob(blobData) {
-    if (!blobData) return;
+    if (!blobData || !(blobData instanceof Blob)) {
+      console.warn('[ZenXR] Dati della sabbia mancanti o corrotti. Salto il ripristino.');
+      return;
+    }
 
     const img = new Image();
     // Creiamo un URL temporaneo per il file binario
