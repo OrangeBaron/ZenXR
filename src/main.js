@@ -12,6 +12,7 @@
  */
 import * as THREE from 'three';
 import GUI from 'lil-gui';
+import * as TWEEN from '@tweenjs/tween.js';
 import { SceneManager } from './core/SceneManager.js';
 import { XRManager } from './core/XRManager.js';
 import { XRInteractionManager } from './core/XRInteractionManager.js';
@@ -142,6 +143,69 @@ async function bootstrap() {
     if (garden.rake) {
       physicsManager.addRake(garden.rake);
     }
+
+    // --- LOGICA INTERATTIVA GONG (FASE 4) ---
+    let gongHits = 0;
+    let lastGongHitTime = 0;
+    const GONG_COOLDOWN_MS = 300; // Abbassato drasticamente per permettere colpi rapidi
+
+    physicsManager.addGong(garden.gong, () => {
+      const now = performance.now();
+      if (now - lastGongHitTime < GONG_COOLDOWN_MS) return;
+      lastGongHitTime = now;
+
+      gongHits++;
+      console.log(`%c⛩️ [ZenXR] Gong colpito! Impatto: ${gongHits}/3`, 'color:#bd9b58; font-weight:bold;');
+
+      // 1. Animazione a pendolo (Interrompibile e ripetibile)
+      const plateGroup = garden.gong.userData.plateGroup;
+      if (plateGroup) {
+        // Se c'erano tween precedenti in esecuzione, li fermiamo per evitare "combattimenti"
+        if (plateGroup.userData.tweens) {
+          plateGroup.userData.tweens.forEach(t => t.stop());
+        }
+        
+        plateGroup.rotation.x = 0; // Reset di partenza
+        
+        const t1 = new TWEEN.Tween(plateGroup.rotation).to({ x: 0.25 }, 120).easing(TWEEN.Easing.Quadratic.Out);
+        const t2 = new TWEEN.Tween(plateGroup.rotation).to({ x: -0.12 }, 220).easing(TWEEN.Easing.Quadratic.InOut);
+        const t3 = new TWEEN.Tween(plateGroup.rotation).to({ x: 0 }, 300).easing(TWEEN.Easing.Quadratic.InOut);
+        
+        t1.chain(t2);
+        t2.chain(t3);
+        
+        plateGroup.userData.tweens = [t1, t2, t3];
+        t1.start();
+      }
+
+      // 2. Controllo della condizione di Reset del Giardino con Dissolvenza Zen
+      if (gongHits >= 3) {
+        console.log('%c⛩️ [ZenXR] Terzo colpo! Dissolvenza in corso...', 'color:#ff4444; font-weight:bold;');
+        
+        // Impediamo ulteriori interazioni fisiche sul gong portando il cooldown all'infinito
+        lastGongHitTime = Infinity;
+
+        // Attraversiamo TUTTI gli oggetti del giardino per farli svanire
+        garden.group.traverse((child) => {
+          if (child.isMesh && child.material) {
+            // Assicuriamoci che il materiale possa gestire la trasparenza
+            child.material.transparent = true;
+            child.material.needsUpdate = true;
+            
+            new TWEEN.Tween(child.material)
+              .to({ opacity: 0 }, 1500) // 1.5 secondi di dissolvenza dolcissima
+              .easing(TWEEN.Easing.Quadratic.Out)
+              .start();
+          }
+        });
+
+        // Eseguiamo il ricaricamento effettivo SOLO dopo che la dissolvenza è completata
+        setTimeout(() => {
+          clearGardenState();
+          window.location.reload();
+        }, 1600);
+      }
+    });
   };
 
   const stateManager = new StateManager();

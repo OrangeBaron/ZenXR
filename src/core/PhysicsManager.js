@@ -17,6 +17,9 @@ export class PhysicsManager {
    */
   constructor() {
     this.world = null;
+    this.eventQueue = null;
+    this.gongPlateColliderHandle = null;
+    this.onGongHitCallback = null;
     this.meshBodyMap = new Map();
     this.grabbedObjects = new Map();
     this.gardenLimits = null;
@@ -37,6 +40,7 @@ export class PhysicsManager {
     await RAPIER.init();
     const gravity = { x: 0.0, y: -2.0, z: 0.0 };
     this.world = new RAPIER.World(gravity);
+    this.eventQueue = new RAPIER.EventQueue();
     console.log('[ZenXR] Motore fisico (Rapier) inizializzato.');
   }
 
@@ -240,6 +244,87 @@ export class PhysicsManager {
   }
 
   /**
+   * Registra il gong nel mondo fisico. Diviso in due corpi cinematici per
+   * sincronizzare perfettamente la fisica con l'oscillazione visiva del piatto.
+   * @param {THREE.Group} gongGroup Il gruppo del gong generato.
+   * @param {() => void} onHit Callback invocata quando il piatto viene colpito.
+   */
+  addGong(gongGroup, onHit) {
+    this.onGongHitCallback = onHit;
+
+    // 1. Corpo cinematico per la STRUTTURA fissa (gambe, traversa)
+    const standBodyDesc = RAPIER.RigidBodyDesc.kinematicPositionBased();
+    const standBody = this.world.createRigidBody(standBodyDesc);
+    this.meshBodyMap.set(gongGroup, standBody); // Lega il root principale alla struttura fissa
+
+    // 2. Corpo cinematico per il PIATTO (che verrà animato dal TWEEN)
+    const plateGroup = gongGroup.userData.plateGroup;
+    const plateBodyDesc = RAPIER.RigidBodyDesc.kinematicPositionBased();
+    const plateBody = this.world.createRigidBody(plateBodyDesc);
+    // Questo è il trucco magico: aggiornando plateGroup nella meshBodyMap,
+    // il nostro ciclo update() applicherà l'animazione visiva del TWEEN direttamente al collider!
+    this.meshBodyMap.set(plateGroup, plateBody); 
+
+    const tempMatrix = new THREE.Matrix4();
+    const localPos = new THREE.Vector3();
+    const localQuat = new THREE.Quaternion();
+    const localScale = new THREE.Vector3();
+
+    gongGroup.updateMatrixWorld(true);
+
+    gongGroup.traverse((child) => {
+      if (child.isMesh) {
+        // FILTRO: Ignoriamo le corde (radiusTop === 0.001) per evitare collisioni "fantasma" in aria
+        if (child.geometry.parameters && child.geometry.parameters.radiusTop === 0.001) {
+          return; 
+        }
+
+        // Determiniamo a quale gruppo (e quindi a quale RigidBody) appartiene questa mesh
+        let isPlate = false;
+        let current = child;
+        while(current) {
+          if (current === plateGroup) { isPlate = true; break; }
+          current = current.parent;
+        }
+
+        const targetBody = isPlate ? plateBody : standBody;
+        const targetRoot = isPlate ? plateGroup : gongGroup;
+
+        // Calcolo della trasformazione locale corretta rispetto al gruppo di appartenenza
+        child.updateMatrixWorld(true);
+        tempMatrix.copy(targetRoot.matrixWorld).invert().multiply(child.matrixWorld);
+        tempMatrix.decompose(localPos, localQuat, localScale);
+
+        let colliderDesc;
+        if (child.userData.kind === 'gong_plate') {
+          // ANTI-TUNNELING: Sostituiamo l'Hull del piatto con un Cuboid solido e 
+          // artificialmente più spesso (3cm totali) per bloccare fisicamente il rastrello.
+          // (Estensioni Rapier: half-X, half-Y, half-Z)
+          colliderDesc = RAPIER.ColliderDesc.cuboid(0.06, 0.06, 0.015)
+            .setTranslation(localPos.x, localPos.y, localPos.z)
+            .setRotation(localQuat);
+        } else {
+          // Struttura in legno: Hull convesso esatto
+          const positions = new Float32Array(serializeGeometryPositions(child.geometry));
+          colliderDesc = RAPIER.ColliderDesc.convexHull(positions)
+            .setTranslation(localPos.x, localPos.y, localPos.z)
+            .setRotation(localQuat);
+        }
+
+        if (!colliderDesc) return;
+
+        const collider = this.world.createCollider(colliderDesc, targetBody);
+
+        // Attiviamo gli eventi di impatto SOLO sul piatto metallico
+        if (child.userData.kind === 'gong_plate') {
+          collider.setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
+          this.gongPlateColliderHandle = collider.handle;
+        }
+      }
+    });
+  }
+
+  /**
    * Avanza la simulazione fisica di un passo. Applica la velocità verso il
    * punto di presa alle rocce afferrate, esegue lo step del mondo Rapier,
    * riporta la posa dei corpi dinamici sulle mesh corrispondenti applicando
@@ -293,7 +378,19 @@ export class PhysicsManager {
       }
     }
 
-    this.world.step();
+    this.world.step(this.eventQueue);
+
+    // Intercetta e gestisci gli eventi di collisione attiva
+    if (this.eventQueue && this.onGongHitCallback) {
+      this.eventQueue.drainCollisionEvents((handle1, handle2, started) => {
+        // Ci interessa solo l'inizio del contatto (started === true)
+        if (started) {
+          if (handle1 === this.gongPlateColliderHandle || handle2 === this.gongPlateColliderHandle) {
+            this.onGongHitCallback();
+          }
+        }
+      });
+    }
 
     // Sincronizza Rapier -> Three.js per i corpi dinamici, applicando il
     // controllo OOB sui limiti della vasca.

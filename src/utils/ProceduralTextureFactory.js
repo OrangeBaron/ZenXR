@@ -186,3 +186,55 @@ function createLeafTexture() {
   return texture;
 }
 export const leafBaseTexture = createLeafTexture();
+
+// ============================================================================
+// PIATTO DEL GONG
+// ============================================================================
+function createGongTexture() {
+  const size = 512;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  const center = size / 2;
+
+  // 1. Colore di base (Bronzo medio per l'anello spazzolato)
+  ctx.fillStyle = '#b58d4b';
+  ctx.fillRect(0, 0, size, size);
+
+  // 2. Spazzolatura radiale (micro-graffi circolari per simulare il tornio)
+  ctx.lineWidth = 1.5;
+  for (let i = 0; i < 3000; i++) {
+    const radius = Math.random() * (size / 2);
+    const startAngle = Math.random() * Math.PI * 2;
+    // Archi corti per dare l'idea del graffio
+    const arcLength = 0.1 + Math.random() * 0.4; 
+    
+    ctx.beginPath();
+    ctx.arc(center, center, radius, startAngle, startAngle + arcLength);
+    // Alterniamo graffi leggermente più chiari e più scuri per dare volume
+    ctx.strokeStyle = Math.random() > 0.5 
+      ? 'rgba(255, 230, 180, 0.08)' 
+      : 'rgba(90, 60, 20, 0.12)';
+    ctx.stroke();
+  }
+
+  // 3. Bullseye centrale (Bronzo scuro/ossidato)
+  ctx.beginPath();
+  ctx.arc(center, center, size * 0.18, 0, Math.PI * 2);
+  ctx.fillStyle = '#5c401e';
+  ctx.fill();
+
+  // 4. Anello esterno (Bronzo scuro/ossidato)
+  ctx.beginPath();
+  // Raggio leggermente minore della metà per non sbordare
+  ctx.arc(center, center, size * 0.46, 0, Math.PI * 2);
+  ctx.lineWidth = size * 0.08; // Spessore del bordo
+  ctx.strokeStyle = '#4a3316';
+  ctx.stroke();
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.anisotropy = 4;
+  return texture;
+}
+export const gongBaseTexture = createGongTexture();

@@ -18,6 +18,7 @@ import { createRock, serializeRock, deserializeRock } from './RockGenerator.js';
 import { createBonsai, serializeBonsai, deserializeBonsai } from './BonsaiGenerator.js';
 import { createPond, serializePond, deserializePond, isInsidePond, POND_SURFACE_LIFT, generatePondPebbles } from './PondGenerator.js';
 import { createRake } from './RakeGenerator.js';
+import { createGong } from './GongGenerator.js';
 import { createMatcapTexture } from '../utils/MatcapTextureFactory.js';
 import { sandBaseTexture } from '../utils/ProceduralTextureFactory.js';
 import {
@@ -86,6 +87,7 @@ export class GardenBase {
     }
 
     this._addRake();
+    this._addGong();
   }
 
   /**
@@ -287,5 +289,18 @@ export class GardenBase {
     this.rake.rotation.set(0, Math.PI - Math.PI / 6, 0); 
     
     this.group.add(this.rake);
+  }
+
+  _addGong() {
+    this.gong = createGong();
+    
+    const offsetX = (this.width / 2 + 0.25); 
+    const liftY = 0;
+    
+    this.gong.position.set(offsetX, liftY, 0);
+    
+    this.gong.rotation.set(0, Math.PI + Math.PI / 6, 0); 
+    
+    this.group.add(this.gong);
   }
 }
