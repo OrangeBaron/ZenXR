@@ -25,6 +25,8 @@ import { SandSurfaceManager } from './core/SandSurfaceManager.js';
 import { PlacementPreview } from './entities/PlacementPreview.js';
 import { GardenBase } from './entities/GardenBase.js';
 import { loadGardenState, saveGardenState, clearGardenState } from './utils/SaveSystem.js';
+import { GongInteractionManager } from './core/GongInteractionManager.js';
+import { RakeInteractionManager } from './core/RakeInteractionManager.js';
 
 /** Ritardo (ms) del debounce fra una notifica di modifica e il salvataggio effettivo. */
 const SAVE_DEBOUNCE_MS = 1000;
@@ -45,7 +47,7 @@ function removeBootOverlay() {
  * @param {GardenBase} garden
  * @param {StateManager} stateManager
  * @param {SandSurfaceManager} sandSurfaceManager
- * @param {() => void} onResetMemory Azzera il salvataggio e ricarica il giardino.
+ * @param {() => void} onResetMemory
  * @returns {GUI}
  */
 function createDebugGUI(sceneManager, placementPreview, garden, stateManager, sandSurfaceManager, onResetMemory) {
@@ -70,7 +72,7 @@ function createDebugGUI(sceneManager, placementPreview, garden, stateManager, sa
           garden.group.position.set(0, 0, -1);
           garden.group.rotation.set(0, Math.PI, 0);
           garden.group.visible = true;
-          startGardenPhysics(); // La funzione sarà iniettata da bootstrap
+          startGardenPhysics();
         },
       },
       'mostra'
@@ -112,7 +114,6 @@ async function bootstrap() {
   const physicsManager = new PhysicsManager();
   await physicsManager.init();
 
-  // Inizializza il manager della sabbia passando il renderer
   const sandSurfaceManager = new SandSurfaceManager(sceneManager.renderer);
 
   const placementPreview = new PlacementPreview();
@@ -144,68 +145,16 @@ async function bootstrap() {
       physicsManager.addRake(garden.rake);
     }
 
-    // --- LOGICA INTERATTIVA GONG (FASE 4) ---
-    let gongHits = 0;
-    let lastGongHitTime = 0;
-    const GONG_COOLDOWN_MS = 300; // Abbassato drasticamente per permettere colpi rapidi
-
-    physicsManager.addGong(garden.gong, () => {
-      const now = performance.now();
-      if (now - lastGongHitTime < GONG_COOLDOWN_MS) return;
-      lastGongHitTime = now;
-
-      gongHits++;
-      console.log(`%c⛩️ [ZenXR] Gong colpito! Impatto: ${gongHits}/3`, 'color:#bd9b58; font-weight:bold;');
-
-      // 1. Animazione a pendolo (Interrompibile e ripetibile)
-      const plateGroup = garden.gong.userData.plateGroup;
-      if (plateGroup) {
-        // Se c'erano tween precedenti in esecuzione, li fermiamo per evitare "combattimenti"
-        if (plateGroup.userData.tweens) {
-          plateGroup.userData.tweens.forEach(t => t.stop());
-        }
-        
-        plateGroup.rotation.x = 0; // Reset di partenza
-        
-        const t1 = new TWEEN.Tween(plateGroup.rotation).to({ x: 0.25 }, 120).easing(TWEEN.Easing.Quadratic.Out);
-        const t2 = new TWEEN.Tween(plateGroup.rotation).to({ x: -0.12 }, 220).easing(TWEEN.Easing.Quadratic.InOut);
-        const t3 = new TWEEN.Tween(plateGroup.rotation).to({ x: 0 }, 300).easing(TWEEN.Easing.Quadratic.InOut);
-        
-        t1.chain(t2);
-        t2.chain(t3);
-        
-        plateGroup.userData.tweens = [t1, t2, t3];
-        t1.start();
-      }
-
-      // 2. Controllo della condizione di Reset del Giardino con Dissolvenza Zen
-      if (gongHits >= 3) {
-        console.log('%c⛩️ [ZenXR] Terzo colpo! Dissolvenza in corso...', 'color:#ff4444; font-weight:bold;');
-        
-        // Impediamo ulteriori interazioni fisiche sul gong portando il cooldown all'infinito
-        lastGongHitTime = Infinity;
-
-        // Attraversiamo TUTTI gli oggetti del giardino per farli svanire
-        garden.group.traverse((child) => {
-          if (child.isMesh && child.material) {
-            // Assicuriamoci che il materiale possa gestire la trasparenza
-            child.material.transparent = true;
-            child.material.needsUpdate = true;
-            
-            new TWEEN.Tween(child.material)
-              .to({ opacity: 0 }, 1500) // 1.5 secondi di dissolvenza dolcissima
-              .easing(TWEEN.Easing.Quadratic.Out)
-              .start();
-          }
-        });
-
-        // Eseguiamo il ricaricamento effettivo SOLO dopo che la dissolvenza è completata
-        setTimeout(() => {
-          clearGardenState();
-          window.location.reload();
-        }, 1600);
+    const gongManager = new GongInteractionManager({
+      gong: garden.gong,
+      gardenGroup: garden.group,
+      onReset: () => {
+        clearGardenState();
+        window.location.reload();
       }
     });
+
+    physicsManager.addGong(garden.gong, () => gongManager.handleHit());
   };
 
   const stateManager = new StateManager();
@@ -218,11 +167,9 @@ async function bootstrap() {
     'default': 1000
   };
 
-  // L'evento 'event' ci viene passato dal custom event dispatcher
   stateManager.onChange((event) => {
     clearTimeout(saveDebounceTimer);
     
-    // Leggiamo quale azione ha scatenato l'evento (o usiamo default)
     const action = event.detail?.action || 'default';
     const delay = DEBOUNCE_TIMES[action] || DEBOUNCE_TIMES['default'];
 
@@ -281,10 +228,13 @@ async function bootstrap() {
     scene: sceneManager.scene,
   });
 
-  removeBootOverlay();
+  const rakeManager = new RakeInteractionManager({
+    garden,
+    sandSurfaceManager,
+    stateManager
+  });
 
-  // Vettore pre-allocato per evitare garbage collection nel loop
-  const _tempToothPos = new THREE.Vector3();
+  removeBootOverlay();
 
   sceneManager.renderer.setAnimationLoop((_timestamp, frame) => {
     let pose = null;
@@ -298,54 +248,8 @@ async function bootstrap() {
 
     physicsManager.update();
     leafFallManager.update(pose);
-
-    // --- LOGICA DISEGNO SABBIA ---
-    if (garden.rake && garden.group.visible) {
-      garden.rake.updateMatrixWorld(true);
-
-      const segments = [];
-      const teeth = garden.rake.children.slice(2);
-      
-      for (const tooth of teeth) {
-        _tempToothPos.set(0, -0.025, 0);
-        tooth.localToWorld(_tempToothPos);
-        garden.group.worldToLocal(_tempToothPos);
-
-        const isTouching = _tempToothPos.y <= garden.sandTopY + 0.015;
-
-        if (isTouching) {
-          const currentPos = { x: _tempToothPos.x, z: _tempToothPos.z };
-          
-          if (tooth.userData.lastPos) {
-            // Evita di disegnare micro-segmenti se il rastrello è praticamente fermo
-            const dist = Math.hypot(currentPos.x - tooth.userData.lastPos.x, currentPos.z - tooth.userData.lastPos.z);
-            if (dist > 0.0005) { 
-              segments.push({ start: tooth.userData.lastPos, end: currentPos });
-              tooth.userData.lastPos = currentPos;
-            }
-          } else {
-            // È il primissimo frame di contatto, salviamo il punto di partenza
-            tooth.userData.lastPos = currentPos;
-          }
-        } else {
-          // Il dente si è sollevato, resettiamo il tracciamento
-          tooth.userData.lastPos = null;
-        }
-      }
-
-      if (segments.length > 0) {
-        sandSurfaceManager.drawStrokes(segments);
-        
-        const tex = sandSurfaceManager.getTexture();
-        garden.sand.material.displacementMap = tex;
-        garden.sand.material.bumpMap = tex;
-        garden.sand.material.aoMap = tex;
-
-        stateManager.notifyChange({ action: 'sand_drawn' });
-      }
-    }
-    // -----------------------------
-
+    rakeManager.update();
+  
     sceneManager.render();
   });
 }
