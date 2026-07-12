@@ -120,7 +120,7 @@ async function bootstrap() {
   sceneManager.scene.add(placementPreview.mesh);
 
   const savedState = await loadGardenState();
-  const garden = new GardenBase({ 
+  let garden = new GardenBase({ 
     savedState, 
     sandTexture: sandSurfaceManager.getTexture() 
   });
@@ -148,9 +148,56 @@ async function bootstrap() {
     const gongManager = new GongInteractionManager({
       gong: garden.gong,
       gardenGroup: garden.group,
-      onReset: () => {
-        clearGardenState();
-        window.location.reload();
+      onReset: async () => {
+        // 1. Pulisci i dati persistenti e la sabbia
+        await clearGardenState();
+        sandSurfaceManager.clear();
+
+        // 2. Rimuovi visivamente e fisicamente il VECCHIO giardino
+        sceneManager.scene.remove(garden.group);
+        physicsManager.clear();
+        
+        // Sgancia eventuali rocce o foglie rimaste in mano all'utente
+        handTrackingManager._heldLeaves.clear();
+        handTrackingManager._heldObjects.clear();
+
+        // 3. Genera il NUOVO giardino (senza savedState, quindi fresco e casuale)
+        garden = new GardenBase({ sandTexture: sandSurfaceManager.getTexture() });
+
+        // 4. Se l'utente aveva già ancorato il giardino nella stanza, manteniamo la posizione
+        if (xrInteractionManager.hasPlaced) {
+          garden.group.position.copy(xrInteractionManager.targetGroup.position);
+          garden.group.quaternion.copy(xrInteractionManager.targetGroup.quaternion);
+          garden.group.visible = true;
+        }
+
+        sceneManager.scene.add(garden.group);
+
+        // 5. Aggiorna i riferimenti in tutti i manager interattivi
+        xrInteractionManager.targetGroup = garden.group;
+        handTrackingManager.bonsai = garden.bonsai;
+        handTrackingManager.garden = garden;
+        leafFallManager.garden = garden;
+        rakeManager.garden = garden;
+
+        // 6. Riavvia il motore fisico per i nuovi elementi
+        physicsReady = false; 
+        startGardenPhysics();
+
+        // 7. Effetto di Dissolvenza in Entrata (Fade-In) per il nuovo giardino
+        garden.group.traverse((child) => {
+          if (child.isMesh && child.material) {
+            child.material.transparent = true;
+            child.material.opacity = 0; // Parte invisibile
+            new TWEEN.Tween(child.material)
+              .to({ opacity: 1 }, 1500) // Appare gradualmente in 1.5 secondi
+              .easing(TWEEN.Easing.Quadratic.Out)
+              .start();
+          }
+        });
+
+        // 8. Salva immediatamente il nuovo stato generato
+        saveGardenState(garden.getState());
       }
     });
 

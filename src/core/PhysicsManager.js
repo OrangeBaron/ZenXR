@@ -446,4 +446,23 @@ export class PhysicsManager {
       }
     }
   }
+
+  /**
+   * Pulisce il mondo fisico rimuovendo tutti i corpi rigidi attuali
+   * e resettando le mappe interne. Utile per il reset del giardino in-game.
+   */
+  clear() {
+    if (!this.world) return;
+
+    // Rimuove tutti i corpi rigidi dal mondo fisico di Rapier
+    this.world.forEachRigidBody((body) => {
+      this.world.removeRigidBody(body);
+    });
+
+    // Svuota i riferimenti di Three.js
+    this.meshBodyMap.clear();
+    this.grabbedObjects.clear();
+    this.gongPlateColliderHandle = null;
+    this.onGongHitCallback = null;
+  }
 }
