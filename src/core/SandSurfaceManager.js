@@ -174,49 +174,53 @@ export class SandSurfaceManager {
 
   /**
    * Legge i pixel della texture dalla GPU, li converte e restituisce
-   * una stringa Base64 (PNG) pronta per essere salvata nel LocalStorage.
-   * @returns {string} L'immagine della mappa in formato Base64.
+   * un Blob (PNG) tramite Promise, evitando di bloccare il thread principale.
+   * @returns {Promise<Blob>} L'immagine della mappa in formato Blob binario.
    */
-  exportBase64() {
-    const width = this.resolution;
-    const height = this.resolution;
-    
-    // 1. Prepariamo un buffer per ricevere i dati dalla scheda video
-    const buffer = new Uint8Array(width * height * 4);
-    
-    // 2. Leggiamo i pixel grezzi dal target corrente
-    this.renderer.readRenderTargetPixels(this.targetA, 0, 0, width, height, buffer);
+  exportBlob() {
+    return new Promise((resolve) => {
+      const width = this.resolution;
+      const height = this.resolution;
+      
+      // 1. Prepariamo un buffer per ricevere i dati dalla scheda video
+      const buffer = new Uint8Array(width * height * 4);
+      this.renderer.readRenderTargetPixels(this.targetA, 0, 0, width, height, buffer);
 
-    // 3. Spostiamo i pixel su un canvas per poterli esportare
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext('2d');
-    const imgData = ctx.createImageData(width, height);
+      // 2. Spostiamo i pixel su un canvas per poterli esportare
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      const imgData = ctx.createImageData(width, height);
 
-    // ATTENZIONE: WebGL legge i pixel dal basso verso l'alto, Canvas dall'alto verso il basso.
-    // Dobbiamo capovolgere l'immagine riga per riga.
-    for (let y = 0; y < height; y++) {
-      const webglY = height - y - 1;
-      const webglIndex = webglY * width * 4;
-      const canvasIndex = y * width * 4;
-      imgData.data.set(buffer.subarray(webglIndex, webglIndex + width * 4), canvasIndex);
-    }
-    
-    ctx.putImageData(imgData, 0, 0);
+      // ATTENZIONE: WebGL legge i pixel dal basso verso l'alto, Canvas dall'alto verso il basso.
+      for (let y = 0; y < height; y++) {
+        const webglY = height - y - 1;
+        const webglIndex = webglY * width * 4;
+        const canvasIndex = y * width * 4;
+        imgData.data.set(buffer.subarray(webglIndex, webglIndex + width * 4), canvasIndex);
+      }
+      
+      ctx.putImageData(imgData, 0, 0);
 
-    // Esportiamo in PNG (lossless, conserva perfettamente i dati matematici delle pendenze)
-    return canvas.toDataURL('image/png');
+      // 3. Esportazione asincrona in Blob (molto più leggera di toDataURL)
+      canvas.toBlob((blob) => {
+        resolve(blob);
+      }, 'image/png');
+    });
   }
 
   /**
-   * Riceve una stringa Base64 salvata e la ri-stampa sull'FBO.
-   * @param {string} base64Data La stringa dell'immagine.
+   * Riceve un Blob salvato da IndexedDB e lo ri-stampa sull'FBO.
+   * @param {Blob} blobData Il Blob binario dell'immagine.
    */
-  restoreFromBase64(base64Data) {
-    if (!base64Data) return;
+  restoreFromBlob(blobData) {
+    if (!blobData) return;
 
     const img = new Image();
+    // Creiamo un URL temporaneo per il file binario
+    const objectUrl = URL.createObjectURL(blobData);
+
     img.onload = () => {
       const canvas = document.createElement('canvas');
       canvas.width = this.resolution;
@@ -254,7 +258,11 @@ export class SandSurfaceManager {
       
       this.bgMaterial.map = this.targetA.texture;
       texture.dispose();
+      
+      // Pulizia della memoria: eliminiamo l'URL temporaneo
+      URL.revokeObjectURL(objectUrl);
     };
-    img.src = base64Data;
+    
+    img.src = objectUrl;
   }
 }

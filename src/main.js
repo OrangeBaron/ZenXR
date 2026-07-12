@@ -118,7 +118,7 @@ async function bootstrap() {
   const placementPreview = new PlacementPreview();
   sceneManager.scene.add(placementPreview.mesh);
 
-  const savedState = loadGardenState();
+  const savedState = await loadGardenState();
   const garden = new GardenBase({ 
     savedState, 
     sandTexture: sandSurfaceManager.getTexture() 
@@ -126,7 +126,7 @@ async function bootstrap() {
   sceneManager.scene.add(garden.group);
 
   if (savedState && savedState.sand) {
-    sandSurfaceManager.restoreFromBase64(savedState.sand);
+    sandSurfaceManager.restoreFromBlob(savedState.sand);
   }
   
   if (!savedState) {
@@ -210,16 +210,30 @@ async function bootstrap() {
 
   const stateManager = new StateManager();
   let saveDebounceTimer = null;
-  stateManager.onChange(() => {
+  
+  const DEBOUNCE_TIMES = {
+    'rock_moved': 2000,
+    'leaf_pruned': 1000,
+    'sand_drawn': 1500,
+    'default': 1000
+  };
+
+  // L'evento 'event' ci viene passato dal custom event dispatcher
+  stateManager.onChange((event) => {
     clearTimeout(saveDebounceTimer);
-    saveDebounceTimer = setTimeout(() => {
+    
+    // Leggiamo quale azione ha scatenato l'evento (o usiamo default)
+    const action = event.detail?.action || 'default';
+    const delay = DEBOUNCE_TIMES[action] || DEBOUNCE_TIMES['default'];
+
+    saveDebounceTimer = setTimeout(async () => {
       const state = garden.getState();
       
-      state.sand = sandSurfaceManager.exportBase64(); 
+      state.sand = await sandSurfaceManager.exportBlob(); 
       
       saveGardenState(state);
-      console.log('[ZenXR] Stato del giardino salvato con successo.');
-    }, SAVE_DEBOUNCE_MS);
+      console.log(`[ZenXR] Stato salvato con successo (Trigger: ${action}, Attesa: ${delay}ms)`);
+    }, delay);
   });
 
   const gui = createDebugGUI(sceneManager, placementPreview, garden, stateManager, sandSurfaceManager, () => {
@@ -327,7 +341,7 @@ async function bootstrap() {
         garden.sand.material.bumpMap = tex;
         garden.sand.material.aoMap = tex;
 
-        stateManager.notifyChange();
+        stateManager.notifyChange({ action: 'sand_drawn' });
       }
     }
     // -----------------------------
