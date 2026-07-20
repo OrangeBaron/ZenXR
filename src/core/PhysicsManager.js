@@ -19,11 +19,17 @@ export class PhysicsManager {
     this.gardenLimits = null;
     this.rakeMesh = null;
     
-    // Variabili pre-allocate per evitare garbage collection
+    // Variabili pre-allocate per evitare garbage collection nel loop
     this._worldPos = new THREE.Vector3();
     this._worldQuat = new THREE.Quaternion();
     this._parentQuat = new THREE.Quaternion();
     this._correctedWorld = new THREE.Vector3();
+
+    // Nuove variabili pre-allocate per la fisica del grab
+    this._tempQ0 = new THREE.Quaternion();
+    this._tempQ1 = new THREE.Quaternion();
+    this._tempQDiff = new THREE.Quaternion();
+    
     this.clock = new THREE.Clock();
   }
 
@@ -42,7 +48,6 @@ export class PhysicsManager {
     gardenGroup.traverse((child) => {
       const phys = child.userData?.physics;
       if (!phys) return;
-
       if (phys.shape === 'tray') {
         this._addStaticFloor(child, phys);
       } else if (phys.isCompoundRoot) {
@@ -58,7 +63,6 @@ export class PhysicsManager {
    */
   _createColliderDesc(mesh, phys, localPos = null, localQuat = null) {
     let colliderDesc = null;
-
     if (phys.shape === 'convexHull') {
       const positions = new Float32Array(serializeGeometryPositions(mesh.geometry));
       colliderDesc = RAPIER.ColliderDesc.convexHull(positions);
@@ -68,13 +72,11 @@ export class PhysicsManager {
     } else if (phys.shape === 'cylinder') {
       colliderDesc = RAPIER.ColliderDesc.cylinder(phys.halfHeight, phys.radius);
     }
-
     if (colliderDesc) {
       // Calcolo offset di traslazione
       const tx = (localPos ? localPos.x : 0) + (phys.offsetX || 0);
       const ty = (localPos ? localPos.y : 0) + (phys.offsetY || 0);
       const tz = (localPos ? localPos.z : 0) + (phys.offsetZ || 0);
-
       if (tx !== 0 || ty !== 0 || tz !== 0) {
         colliderDesc.setTranslation(tx, ty, tz);
       }
@@ -92,27 +94,22 @@ export class PhysicsManager {
     const phys = mesh.userData.physics;
     mesh.getWorldPosition(this._worldPos);
     mesh.getWorldQuaternion(this._worldQuat);
-
     let bodyDesc;
     if (phys.type === 'dynamic') bodyDesc = RAPIER.RigidBodyDesc.dynamic();
     else if (phys.type === 'fixed') bodyDesc = RAPIER.RigidBodyDesc.fixed();
     else bodyDesc = RAPIER.RigidBodyDesc.kinematicPositionBased();
-
     bodyDesc.setTranslation(this._worldPos.x, this._worldPos.y, this._worldPos.z)
             .setRotation(this._worldQuat)
             .setLinearDamping(phys.linearDamping || 0.0)
             .setAngularDamping(phys.angularDamping || 0.0);
-
     const rigidBody = this.world.createRigidBody(bodyDesc);
     const colliderDesc = this._createColliderDesc(mesh, phys);
-
     if (colliderDesc) {
       if (phys.density) colliderDesc.setDensity(phys.density);
       if (phys.friction) colliderDesc.setFriction(phys.friction);
       if (phys.restitution) colliderDesc.setRestitution(phys.restitution);
       this.world.createCollider(colliderDesc, rigidBody);
     }
-
     this.meshBodyMap.set(mesh, rigidBody);
   }
 
@@ -123,20 +120,17 @@ export class PhysicsManager {
     const phys = group.userData.physics;
     group.getWorldPosition(this._worldPos);
     group.getWorldQuaternion(this._worldQuat);
-
     let bodyDesc;
     if (phys.type === 'dynamic') bodyDesc = RAPIER.RigidBodyDesc.dynamic();
     else if (phys.type === 'fixed') bodyDesc = RAPIER.RigidBodyDesc.fixed();
     else bodyDesc = RAPIER.RigidBodyDesc.kinematicPositionBased();
-
     bodyDesc.setTranslation(this._worldPos.x, this._worldPos.y, this._worldPos.z)
             .setRotation(this._worldQuat)
             .setLinearDamping(phys.linearDamping || 0.0)
             .setAngularDamping(phys.angularDamping || 0.0);
-    
+            
     if (phys.gravityScale !== undefined) bodyDesc.setGravityScale(phys.gravityScale);
     if (phys.ccdEnabled) bodyDesc.setCcdEnabled(phys.ccdEnabled);
-
     const rigidBody = this.world.createRigidBody(bodyDesc);
     
     // Inizializzazione specifica per la presa del rastrello
@@ -144,21 +138,17 @@ export class PhysicsManager {
       this.rakeMesh = group;
       rigidBody.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, true);
     }
-
     const tempMatrix = new THREE.Matrix4();
     const localPos = new THREE.Vector3();
     const localQuat = new THREE.Quaternion();
     const localScale = new THREE.Vector3();
-
     group.updateMatrixWorld(true);
-
     group.traverse((child) => {
       const childPhys = child.userData?.physics;
       if (child.isMesh && childPhys) {
         child.updateMatrixWorld(true);
         tempMatrix.copy(group.matrixWorld).invert().multiply(child.matrixWorld);
         tempMatrix.decompose(localPos, localQuat, localScale);
-
         const colliderDesc = this._createColliderDesc(child, childPhys, localPos, localQuat);
         if (colliderDesc) {
           // Eredita le proprietà fisiche dal padre composto
@@ -170,7 +160,6 @@ export class PhysicsManager {
           if (childPhys.activeEvents) {
             colliderDesc.setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
           }
-
           const collider = this.world.createCollider(colliderDesc, rigidBody);
           
           // Tracciamento specifico per gli eventi del gong
@@ -181,7 +170,6 @@ export class PhysicsManager {
         childPhys.isPartOfCompound = true;
       }
     });
-
     this.meshBodyMap.set(group, rigidBody);
   }
 
@@ -203,24 +191,20 @@ export class PhysicsManager {
       hz: hz - 0.02,
       minY: mesh.position.y + hy
     };
-
     const bodyDesc = RAPIER.RigidBodyDesc.kinematicPositionBased()
       .setTranslation(this._worldPos.x, this._worldPos.y, this._worldPos.z)
       .setRotation(this._worldQuat);
-              
+      
     const rigidBody = this.world.createRigidBody(bodyDesc);
     const floorCollider = RAPIER.ColliderDesc.cuboid(hx, hy, hz);
     this.world.createCollider(floorCollider, rigidBody);
-
     const wallGroups = phys.wallGroups || 0x00020001;
     const wallH = phys.wallHeight || 1.0;
     const wallT = phys.wallThickness || 0.05;
-
     this.world.createCollider(RAPIER.ColliderDesc.cuboid(wallT, wallH, hz).setTranslation(-hx - wallT, wallH, 0).setCollisionGroups(wallGroups), rigidBody);
     this.world.createCollider(RAPIER.ColliderDesc.cuboid(wallT, wallH, hz).setTranslation(hx + wallT, wallH, 0).setCollisionGroups(wallGroups), rigidBody);
     this.world.createCollider(RAPIER.ColliderDesc.cuboid(hx + wallT * 2, wallH, wallT).setTranslation(0, wallH, -hz - wallT).setCollisionGroups(wallGroups), rigidBody);
     this.world.createCollider(RAPIER.ColliderDesc.cuboid(hx + wallT * 2, wallH, wallT).setTranslation(0, wallH, hz + wallT).setCollisionGroups(wallGroups), rigidBody);
-
     this.meshBodyMap.set(mesh, rigidBody);
   }
 
@@ -284,14 +268,17 @@ export class PhysicsManager {
       
       if (targetData.quat) {
         const currentQuat = body.rotation();
-        const q0 = new THREE.Quaternion(currentQuat.x, currentQuat.y, currentQuat.z, currentQuat.w);
-        const q1 = targetData.quat.clone().multiply(targetData.offsetQuat);
         
-        const qDiff = q1.clone().multiply(q0.clone().invert());
-        const angle = 2 * Math.acos(THREE.MathUtils.clamp(qDiff.w, -1, 1));
-        const s = Math.sqrt(1 - qDiff.w * qDiff.w);
+        this._tempQ0.set(currentQuat.x, currentQuat.y, currentQuat.z, currentQuat.w);
+        this._tempQ1.copy(targetData.quat).multiply(targetData.offsetQuat);
         
-        let rx = qDiff.x, ry = qDiff.y, rz = qDiff.z;
+        this._tempQDiff.copy(this._tempQ0).invert(); 
+        this._tempQDiff.premultiply(this._tempQ1);
+        
+        const angle = 2 * Math.acos(THREE.MathUtils.clamp(this._tempQDiff.w, -1, 1));
+        const s = Math.sqrt(1 - this._tempQDiff.w * this._tempQDiff.w);
+        
+        let rx = this._tempQDiff.x, ry = this._tempQDiff.y, rz = this._tempQDiff.z;
         if (s > 0.001) { rx /= s; ry /= s; rz /= s; }
         
         let normAngle = angle;

@@ -1,5 +1,6 @@
 import { GardenBase } from '../entities/GardenBase.js';
 import { loadGardenState, saveGardenState, clearGardenState } from '../utils/SaveSystem.js';
+import { disposeGraph } from '../utils/DisposeUtils.js';
 import * as TWEEN from '@tweenjs/tween.js';
 
 export class GardenLifecycleManager {
@@ -72,6 +73,8 @@ export class GardenLifecycleManager {
     // 2. Rimuovi visivamente e fisicamente il VECCHIO giardino
     this.sceneManager.scene.remove(this.garden.group);
     this.physicsManager.clear();
+
+    disposeGraph(this.garden.group);
     
     // Sgancia eventuali rocce o interazioni in corso in tutti i sistemi registrati
     for (const system of this.systems) {

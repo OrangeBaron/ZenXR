@@ -19,8 +19,18 @@ export class HandTrackingManager {
 
     this._heldObjects = new Map();
     this._pinchAnchors = new Map();
+
+    // --- VARIABILI PRE-ALLOCATE PER EVITARE IL GARBAGE COLLECTION ---
     this._tempThumbPos = new THREE.Vector3();
     this._tempIndexPos = new THREE.Vector3();
+    this._tempWristPos = new THREE.Vector3();
+    this._tempWristQuat = new THREE.Quaternion();
+    this._tempHandDir = new THREE.Vector3();
+    this._tempUp = new THREE.Vector3();
+    this._tempTargetMtx = new THREE.Matrix4();
+    this._tempZero = new THREE.Vector3(0, 0, 0);
+    this._tempSearchPos = new THREE.Vector3();
+    // ----------------------------------------------------------------
 
     this.hands = [];
 
@@ -48,17 +58,16 @@ export class HandTrackingManager {
 
       const wrist = hand.joints['wrist'];
       if (wrist) {
-        const wristPos = new THREE.Vector3();
-        const wristQuat = new THREE.Quaternion();
-        wrist.getWorldPosition(wristPos);
-        wrist.getWorldQuaternion(wristQuat);
+        // Popoliamo le variabili pre-allocate senza usare "new"
+        wrist.getWorldPosition(this._tempWristPos);
+        wrist.getWorldQuaternion(this._tempWristQuat);
         
-        const handDir = new THREE.Vector3().subVectors(point, wristPos).normalize();
-        const up = new THREE.Vector3(0, 1, 0).applyQuaternion(wristQuat);
+        this._tempHandDir.subVectors(point, this._tempWristPos).normalize();
+        this._tempUp.set(0, 1, 0).applyQuaternion(this._tempWristQuat);
         
-        if (Math.abs(handDir.y) < 0.99) {
-          const targetMtx = new THREE.Matrix4().lookAt(new THREE.Vector3(), handDir, up);
-          anchor.quaternion.setFromRotationMatrix(targetMtx);
+        if (Math.abs(this._tempHandDir.y) < 0.99) {
+          this._tempTargetMtx.lookAt(this._tempZero, this._tempHandDir, this._tempUp);
+          anchor.quaternion.setFromRotationMatrix(this._tempTargetMtx);
         }
       }
 
@@ -78,6 +87,7 @@ export class HandTrackingManager {
 
     thumbTip.getWorldPosition(this._tempThumbPos);
     indexTip.getWorldPosition(this._tempIndexPos);
+
     return this._tempThumbPos.add(this._tempIndexPos).multiplyScalar(0.5);
   }
 
@@ -99,13 +109,15 @@ export class HandTrackingManager {
 
     let closest = null;
     let minDistSq = Infinity;
-    const pos = new THREE.Vector3();
+    
+    // Usiamo il Vector3 pre-allocato invece di istanziarlo ad ogni pinch
+    const pos = this._tempSearchPos;
 
     this.garden.group.traverse((object) => {
       if (object.userData && object.userData.interactable) {
         const detectionRadius = object.userData.interactionRadius || DEFAULT_PINCH_RADIUS;
         const maxDistSq = detectionRadius * detectionRadius;
-
+        
         object.getWorldPosition(pos);
         
         if (object.userData.interactionOffsetY) {
@@ -164,11 +176,11 @@ export class HandTrackingManager {
     }
 
     // Notifichiamo il rilascio dell'oggetto specifico
-    this.stateManager?.notifyChange({ 
-        action: 'interactable_released', 
-        hand: hand, 
-        object: obj, 
-        kind: obj.userData.kind 
-    });
+    this.stateManager?.notifyChange({
+         action: 'interactable_released',
+         hand: hand,
+         object: obj,
+         kind: obj.userData.kind
+     });
   }
 }

@@ -7,6 +7,7 @@
 import * as THREE from 'three';
 import * as TWEEN from '@tweenjs/tween.js';
 import { GARDEN_WIDTH, GARDEN_DEPTH } from '../utils/GardenLayout.js';
+import { disposeGraph } from '../utils/DisposeUtils.js';
 
 export class LeafFallManager {
   /**
@@ -127,9 +128,8 @@ export class LeafFallManager {
       .easing(TWEEN.Easing.Quadratic.Out)
       .onComplete(() => {
         this.scene.remove(leaf);
-        leaf.geometry.dispose();
-        leaf.material.dispose();
-
+        disposeGraph(leaf);
+        
         const index = this.fallingLeaves.indexOf(leaf);
         if (index > -1) {
           this.fallingLeaves.splice(index, 1);

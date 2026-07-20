@@ -140,4 +140,17 @@ export class IncenseManager {
       }
     }
   }
+
+  /**
+   * Pulisce la memoria condivisa del sistema particellare.
+   */
+  dispose() {
+    if (this.smokeGeo) this.smokeGeo.dispose();
+    if (this.smokeMat) this.smokeMat.dispose();
+    
+    for (const particle of this.smokeParticles) {
+      this.scene.remove(particle);
+    }
+    this.smokeParticles = [];
+  }
 }

@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import * as TWEEN from '@tweenjs/tween.js';
 import { createSingleMatch } from '../entities/IncenseGenerator.js';
 import { GARDEN_WIDTH, GARDEN_DEPTH } from '../utils/GardenLayout.js';
+import { disposeGraph } from '../utils/DisposeUtils.js';
 
 export class MatchInteractionManager {
   constructor({ scene, garden, stateManager }) {
@@ -18,10 +19,12 @@ export class MatchInteractionManager {
     this.matchHand = null;
     this.fallingMatches = [];
     
-    this._lastMatchPos = null;
     this.clock = new THREE.Clock();
     
-    // Variabili temporanee pre-allocate
+    // Variabili temporanee pre-allocate per evitare il Garbage Collection
+    this._lastMatchPos = new THREE.Vector3();
+    this._hasLastMatchPos = false; // Flag per tracciare il primo frame di vita
+    
     this._tempMatchPos = new THREE.Vector3();
     this._tempIncensePos = new THREE.Vector3();
     this._tempLocalPos = new THREE.Vector3();
@@ -48,8 +51,8 @@ export class MatchInteractionManager {
     this.activeMatch = createSingleMatch();
     anchor.add(this.activeMatch);
     this.matchHand = hand;
-
-    this._lastMatchPos = null;
+    
+    this._hasLastMatchPos = false;
     this._currentVelocity.set(0, 0, 0);
     this.activeMatch.rotation.set(-Math.PI / 2, 0, 0);
   }
@@ -69,11 +72,13 @@ export class MatchInteractionManager {
     if (!this.activeMatch) return;
     
     this._extinguishMatch();
+
     const match = this.activeMatch;
     this.activeMatch = null;
     this.matchHand = null;
 
     this.scene.attach(match);
+
     match.traverse((child) => {
       if (child.isMesh && child.material) {
         child.material.transparent = true;
@@ -82,6 +87,7 @@ export class MatchInteractionManager {
     });
 
     const throwVelocity = this._currentVelocity.clone().multiplyScalar(0.8);
+    
     match.userData.fallData = {
       velocity: throwVelocity,
       startY: match.position.y,
@@ -93,6 +99,7 @@ export class MatchInteractionManager {
 
   _startFadeOut(match) {
     match.userData.fallData.isFading = true;
+    
     const materials = [];
     
     match.traverse((child) => {
@@ -111,12 +118,8 @@ export class MatchInteractionManager {
       })
       .onComplete(() => {
         this.scene.remove(match);
-        match.traverse((child) => {
-          if (child.isMesh) {
-            child.geometry.dispose();
-            child.material.dispose();
-          }
-        });
+        disposeGraph(match);
+        
         const index = this.fallingMatches.indexOf(match);
         if (index > -1) {
           this.fallingMatches.splice(index, 1);
@@ -134,7 +137,7 @@ export class MatchInteractionManager {
       const data = this.activeMatch.userData;
       this.activeMatch.getWorldPosition(this._tempMatchPos);
       
-      if (this._lastMatchPos && dt > 0) {
+      if (this._hasLastMatchPos && dt > 0) {
         this._tempVelocity.subVectors(this._tempMatchPos, this._lastMatchPos).divideScalar(dt);
         this._currentVelocity.lerp(this._tempVelocity, 0.4);
         
@@ -143,7 +146,7 @@ export class MatchInteractionManager {
           this._extinguishMatch();
         }
       } else {
-        this._lastMatchPos = new THREE.Vector3();
+        this._hasLastMatchPos = true;
       }
       
       this._lastMatchPos.copy(this._tempMatchPos);
@@ -158,12 +161,14 @@ export class MatchInteractionManager {
         
         data.fireCore.scale.set(flickerW, 2.2 * flickerH, flickerW);
         data.fireOuter.scale.set(flickerW, 2.8 * flickerH, flickerW);
+        
         data.fireCore.position.x = Math.sin(baseFreq * 0.3) * 0.002;
         data.fireOuter.position.x = Math.sin(baseFreq * 0.3) * 0.002;
 
         // Se l'incenso esiste e non è ancora acceso, controlliamo la distanza
         if (this.garden.incense && !this.garden.incense.userData.isLit) {
           const incenseData = this.garden.incense.userData;
+          
           if (incenseData && incenseData.glowPart) {
             incenseData.glowPart.getWorldPosition(this._tempIncensePos);
             data.fireGroup.getWorldPosition(this._tempFirePos);
