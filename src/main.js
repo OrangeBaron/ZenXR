@@ -1,17 +1,12 @@
 /**
  * Punto di ingresso dell'applicazione ZenXR. Responsabilità unica: orchestrare
  * il bootstrap e l'animation loop, inizializzando in ordine i moduli core
- * (scena, fisica, WebXR, interazione, hand-tracking, persistenza) e
- * collegandoli tra loro tramite callback ed eventi. Non contiene logica di
- * gioco, generazione procedurale o (de)serializzazione dello stato: queste
- * responsabilità sono delegate ai moduli dedicati.
- *
- * Architettura: Vanilla JS (ES6+) senza framework UI né bundler; gli import
- * "bare" sono risolti tramite Import Map in `index.html`.
+ * e collegandoli tra loro tramite callback ed eventi.
  */
 import * as THREE from 'three';
 import GUI from 'lil-gui';
 import * as TWEEN from '@tweenjs/tween.js';
+
 import { SceneManager } from './core/SceneManager.js';
 import { XRManager } from './core/XRManager.js';
 import { XRInteractionManager } from './core/XRInteractionManager.js';
@@ -26,22 +21,16 @@ import { clearGardenState } from './utils/SaveSystem.js';
 import { GongInteractionManager } from './core/GongInteractionManager.js';
 import { RakeInteractionManager } from './core/RakeInteractionManager.js';
 import { GardenLifecycleManager } from './core/GardenLifecycleManager.js';
+import { MatchInteractionManager } from './core/MatchInteractionManager.js';
+import { IncenseManager } from './core/IncenseManager.js';
 import { AutoSaveManager } from './core/AutoSaveManager.js';
-import { IncenseInteractionManager } from './core/IncenseInteractionManager.js';
 
-/**
- * Rimuove l'overlay di boot statico una volta che l'infrastruttura 3D/XR
- * è pronta e il bottone AR (creato da XRManager) è visibile in pagina.
- */
 function removeBootOverlay() {
   document.getElementById('boot')?.remove();
 }
 
-/**
- * Crea e collega il pannello lil-gui di debug per i parametri procedurali.
- */
 function createDebugGUI(sceneManager, placementPreview, lifecycleManager, stateManager, sandSurfaceManager, onResetMemory) {
-  const gui = new GUI({ title: 'ZenXR • Debug' });
+  const gui = new GUI({ title: 'ZenXR - Debug' });
 
   const lightsFolder = gui.addFolder('Illuminazione (provvisoria)');
   lightsFolder.add(sceneManager.hemiLight, 'intensity', 0, 3, 0.01).name('Hemisphere');
@@ -71,8 +60,7 @@ function createDebugGUI(sceneManager, placementPreview, lifecycleManager, stateM
       'mostra'
     )
     .name('Mostra al centro');
-  
-  // Tasto di debug per cancellare manualmente i solchi della sabbia
+
   gardenFolder
     .add({ pulisciSabbia: () => {
       sandSurfaceManager.clear();
@@ -91,17 +79,11 @@ function createDebugGUI(sceneManager, placementPreview, lifecycleManager, stateM
   return gui;
 }
 
-// Iniezione dipendenza per permettere alla GUI di avviare la fisica su desktop
 let startGardenPhysics = () => {};
 
-/**
- * Bootstrap dell'applicazione. Inizializza scena, sessione XR, anteprima di
- * posizionamento, giardino procedurale e pannello di debug, poi avvia
- * l'animation loop.
- */
 async function bootstrap() {
-  console.log('%c🌱 ZenXR – Core 3D / WebXR / Giardino procedurale', 'font-weight:bold;color:#8fbf9f');
-  
+  console.log('%c🌿 ZenXR — Core 3D / WebXR / Giardino procedurale', 'font-weight:bold;color:#8fbf9f');
+
   const sceneManager = new SceneManager();
   const physicsManager = new PhysicsManager();
   await physicsManager.init();
@@ -111,8 +93,6 @@ async function bootstrap() {
   const placementPreview = new PlacementPreview();
   sceneManager.scene.add(placementPreview.mesh);
 
-  // Istanziamo l'XRInteractionManager passando un gruppo temporaneo che verrà 
-  // aggiornato dinamicamente dal LifecycleManager al bootstrap o dopo il reset.
   const xrInteractionManager = new XRInteractionManager({
     renderer: sceneManager.renderer,
     placementPreview,
@@ -123,7 +103,6 @@ async function bootstrap() {
     }
   });
 
-  // Gestore del Ciclo di Vita
   const lifecycleManager = new GardenLifecycleManager({
     sceneManager,
     physicsManager,
@@ -131,7 +110,6 @@ async function bootstrap() {
     xrInteractionManager
   });
 
-  // Inizializzazione live del giardino
   const garden = await lifecycleManager.initGarden();
   xrInteractionManager.targetGroup = garden.group;
 
@@ -141,34 +119,31 @@ async function bootstrap() {
     physicsReady = true;
 
     const activeGarden = lifecycleManager.garden;
-
     physicsManager.addStaticFloor(activeGarden.sand);
     physicsManager.addStaticBonsai(activeGarden.bonsai);
     activeGarden.rocks.forEach(rock => physicsManager.addRock(rock));
+    
     if (activeGarden.rake) {
       physicsManager.addRake(activeGarden.rake);
     }
 
-    // Il GongInteractionManager ora delega l'azione al LifecycleManager
     const gongManager = new GongInteractionManager({
       gong: activeGarden.gong,
       gardenGroup: activeGarden.group,
       onReset: () => lifecycleManager.resetGarden()
     });
-
+    
     physicsManager.addGong(activeGarden.gong, () => gongManager.handleHit());
   };
 
   const stateManager = new StateManager();
 
-  // Gestore del Salvataggio Automatico
   const autoSaveManager = new AutoSaveManager({
     stateManager,
     lifecycleManager,
     sandSurfaceManager
   });
 
-  // Passiamo il lifecycleManager alla GUI in modo che acceda dinamicamente alla proprietà live del giardino
   const gui = createDebugGUI(sceneManager, placementPreview, lifecycleManager, stateManager, sandSurfaceManager, () => {
     clearGardenState();
     window.location.reload();
@@ -210,18 +185,23 @@ async function bootstrap() {
     stateManager
   });
 
-  const incenseManager = new IncenseInteractionManager({
+  const matchManager = new MatchInteractionManager({
     scene: sceneManager.scene,
     garden: garden,
-    stateManager: stateManager,
-    physicsManager: physicsManager
+    stateManager: stateManager
   });
 
-  // Forniamo i riferimenti dei moduli interattivi al LifecycleManager per i futuri reset in-game
+  const incenseManager = new IncenseManager({
+    scene: sceneManager.scene,
+    garden: garden,
+    stateManager: stateManager
+  });
+
   lifecycleManager.initManagers({
     handTrackingManager,
     leafFallManager,
     rakeManager,
+    matchManager,
     incenseManager,
     onPhysicsRestart: () => {
       physicsReady = false;
@@ -244,8 +224,9 @@ async function bootstrap() {
     physicsManager.update();
     leafFallManager.update(pose);
     rakeManager.update();
-    incenseManager.update(pose);
-  
+    matchManager.update(pose);
+    incenseManager.update();
+
     sceneManager.render();
   });
 }

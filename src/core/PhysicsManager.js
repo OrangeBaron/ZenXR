@@ -20,6 +20,7 @@ export class PhysicsManager {
     this.eventQueue = null;
     this.gongPlateColliderHandle = null;
     this.onGongHitCallback = null;
+
     this.meshBodyMap = new Map();
     this.grabbedObjects = new Map();
     this.gardenLimits = null;
@@ -28,6 +29,7 @@ export class PhysicsManager {
     this._worldQuat = new THREE.Quaternion();
     this._parentQuat = new THREE.Quaternion();
     this._correctedWorld = new THREE.Vector3();
+
     this.clock = new THREE.Clock();
   }
 
@@ -53,6 +55,7 @@ export class PhysicsManager {
   addStaticFloor(mesh) {
     mesh.geometry.computeBoundingBox();
     const bbox = mesh.geometry.boundingBox;
+
     const hx = (bbox.max.x - bbox.min.x) / 2;
     const hy = (bbox.max.y - bbox.min.y) / 2;
     const hz = (bbox.max.z - bbox.min.z) / 2;
@@ -69,7 +72,7 @@ export class PhysicsManager {
     const bodyDesc = RAPIER.RigidBodyDesc.kinematicPositionBased()
       .setTranslation(this._worldPos.x, this._worldPos.y, this._worldPos.z)
       .setRotation(this._worldQuat);
-    
+      
     const rigidBody = this.world.createRigidBody(bodyDesc);
     
     // Il pavimento usa i gruppi di default (collide con tutto)
@@ -82,6 +85,7 @@ export class PhysicsManager {
     
     const wallH = 1.0; 
     const wallT = 0.05; 
+    
     this.world.createCollider(RAPIER.ColliderDesc.cuboid(wallT, wallH, hz).setTranslation(-hx - wallT, wallH, 0).setCollisionGroups(wallGroups), rigidBody);
     this.world.createCollider(RAPIER.ColliderDesc.cuboid(wallT, wallH, hz).setTranslation(hx + wallT, wallH, 0).setCollisionGroups(wallGroups), rigidBody);
     this.world.createCollider(RAPIER.ColliderDesc.cuboid(hx + wallT * 2, wallH, wallT).setTranslation(0, wallH, -hz - wallT).setCollisionGroups(wallGroups), rigidBody);
@@ -102,13 +106,16 @@ export class PhysicsManager {
       if (mesh.isMesh && mesh.userData.kind === 'branch') {
         mesh.getWorldPosition(this._worldPos);
         mesh.getWorldQuaternion(this._worldQuat);
+
         const bodyDesc = RAPIER.RigidBodyDesc.kinematicPositionBased()
           .setTranslation(this._worldPos.x, this._worldPos.y, this._worldPos.z)
           .setRotation(this._worldQuat);
         const rigidBody = this.world.createRigidBody(bodyDesc);
+
         const positions = new Float32Array(serializeGeometryPositions(mesh.geometry));
         const colliderDesc = RAPIER.ColliderDesc.convexHull(positions);
         this.world.createCollider(colliderDesc, rigidBody);
+
         this.meshBodyMap.set(mesh, rigidBody);
       }
     });
@@ -130,8 +137,9 @@ export class PhysicsManager {
       .setRotation(this._worldQuat)
       .setLinearDamping(0.3)
       .setAngularDamping(0.1);
-        
+      
     const rigidBody = this.world.createRigidBody(bodyDesc);
+
     const positions = new Float32Array(serializeGeometryPositions(mesh.geometry));
     const colliderDesc = RAPIER.ColliderDesc.convexHull(positions)
       .setDensity(3000.0)
@@ -185,6 +193,7 @@ export class PhysicsManager {
       if (mesh === this.rakeMesh) {
         body.setBodyType(RAPIER.RigidBodyType.Dynamic, true);
       }
+
       body.setGravityScale(0, true);
 
       const offsetQuat = new THREE.Quaternion();
@@ -228,7 +237,7 @@ export class PhysicsManager {
       }
     }
   }
-  
+
   /**
    * Crea un corpo rigido dinamico per il rastrello con un collider composto.
    * Ogni parte (manico, traversa, denti) diventa un collider attaccato allo stesso corpo,
@@ -245,7 +254,7 @@ export class PhysicsManager {
       .setAngularDamping(0.8)
       .setGravityScale(0.0)
       .setCcdEnabled(true);
-        
+      
     const rigidBody = this.world.createRigidBody(bodyDesc);
     
     rigidBody.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, true);
@@ -289,6 +298,7 @@ export class PhysicsManager {
     const plateGroup = gongGroup.userData.plateGroup;
     const plateBodyDesc = RAPIER.RigidBodyDesc.kinematicPositionBased();
     const plateBody = this.world.createRigidBody(plateBodyDesc);
+    
     // Questo è il trucco magico: aggiornando plateGroup nella meshBodyMap,
     // il nostro ciclo update() applicherà l'animazione visiva del TWEEN direttamente al collider!
     this.meshBodyMap.set(plateGroup, plateBody); 
@@ -324,6 +334,7 @@ export class PhysicsManager {
         tempMatrix.decompose(localPos, localQuat, localScale);
 
         let colliderDesc;
+
         if (child.userData.kind === 'gong_plate') {
           // ANTI-TUNNELING: Sostituiamo l'Hull del piatto con un Cuboid solido e 
           // artificialmente più spesso (3cm totali) per bloccare fisicamente il rastrello.
@@ -353,19 +364,10 @@ export class PhysicsManager {
   }
 
   /**
-   * Avanza la simulazione fisica di un passo. Applica la velocità verso il
-   * punto di presa alle rocce afferrate, esegue lo step del mondo Rapier,
-   * riporta la posa dei corpi dinamici sulle mesh corrispondenti applicando
-   * il controllo OOB, e sincronizza i corpi cinematici (sabbia, bonsai)
-   * sulla posa corrente delle rispettive mesh. Da chiamare ad ogni frame.
+   * Applica velocità e rotazione a TUTTI gli oggetti afferrati (Velocity-based grab)
+   * @private
    */
-  update() {
-    if (!this.world) return;
-
-    let dt = this.clock.getDelta();
-    if (dt === 0) dt = 1 / 60; // Fallback di sicurezza contro un delta nullo (es. primo frame).
-
-    // Applica velocità e rotazione a TUTTI gli oggetti afferrati (Velocity-based grab)
+  _applyGrabVelocities(dt) {
     for (const [mesh, targetData] of this.grabbedObjects) {
       const body = this.meshBodyMap.get(mesh);
       if (!body) continue;
@@ -405,10 +407,13 @@ export class PhysicsManager {
         }, true);
       }
     }
+  }
 
-    this.world.step(this.eventQueue);
-
-    // Intercetta e gestisci gli eventi di collisione attiva
+  /**
+   * Intercetta e gestisce gli eventi di collisione attiva.
+   * @private
+   */
+  _processCollisionEvents() {
     if (this.eventQueue && this.onGongHitCallback) {
       this.eventQueue.drainCollisionEvents((handle1, handle2, started) => {
         // Ci interessa solo l'inizio del contatto (started === true)
@@ -419,6 +424,58 @@ export class PhysicsManager {
         }
       });
     }
+  }
+
+  /**
+   * Controlla i limiti della vasca e corregge la posizione dei corpi in uscita.
+   * @private
+   */
+  _enforceGardenLimits(mesh, body) {
+    if (!this.gardenLimits || mesh === this.rakeMesh) return;
+
+    let oob = false;
+
+    if (this._worldPos.x < -this.gardenLimits.hx) { this._worldPos.x = -this.gardenLimits.hx; oob = true; }
+    if (this._worldPos.x > this.gardenLimits.hx) { this._worldPos.x = this.gardenLimits.hx; oob = true; }
+    if (this._worldPos.z < -this.gardenLimits.hz) { this._worldPos.z = -this.gardenLimits.hz; oob = true; }
+    if (this._worldPos.z > this.gardenLimits.hz) { this._worldPos.z = this.gardenLimits.hz; oob = true; }
+
+    // Sprofondamento estremo sotto la sabbia (caduto fuori dal mondo)
+    if (this._worldPos.y < this.gardenLimits.minY - 0.2) {
+      this._worldPos.y = this.gardenLimits.minY + 0.1; // Lo salva riportandolo 10cm sopra la sabbia.
+      oob = true;
+    }
+
+    if (oob) {
+      // Azzera la velocità residua per evitare che l'oggetto "rimbalzi" fuori di nuovo.
+      body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+      body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+
+      // Riconverte la posizione corretta in coordinate mondo, richieste da Rapier per il riposizionamento.
+      this._correctedWorld.copy(this._worldPos);
+      mesh.parent.localToWorld(this._correctedWorld);
+      body.setTranslation({ x: this._correctedWorld.x, y: this._correctedWorld.y, z: this._correctedWorld.z }, true);
+    }
+  }
+
+  /**
+   * Avanza la simulazione fisica di un passo. Applica la velocità verso il
+   * punto di presa alle rocce afferrate, esegue lo step del mondo Rapier,
+   * riporta la posa dei corpi dinamici sulle mesh corrispondenti applicando
+   * il controllo OOB, e sincronizza i corpi cinematici (sabbia, bonsai)
+   * sulla posa corrente delle rispettive mesh. Da chiamare ad ogni frame.
+   */
+  update() {
+    if (!this.world) return;
+
+    let dt = this.clock.getDelta();
+    if (dt === 0) dt = 1 / 60; // Fallback di sicurezza contro un delta nullo (es. primo frame).
+
+    this._applyGrabVelocities(dt);
+
+    this.world.step(this.eventQueue);
+
+    this._processCollisionEvents();
 
     // Sincronizza Rapier -> Three.js per i corpi dinamici, applicando il
     // controllo OOB sui limiti della vasca.
@@ -435,36 +492,11 @@ export class PhysicsManager {
           mesh.parent.getWorldQuaternion(this._parentQuat);
           this._worldQuat.premultiply(this._parentQuat.invert());
 
-          // --- CONTROLLO OOB: Solo per le ROCCE (esclude il rastrello) ---
-          if (this.gardenLimits && mesh !== this.rakeMesh) {
-            let oob = false;
-            if (this._worldPos.x < -this.gardenLimits.hx) { this._worldPos.x = -this.gardenLimits.hx; oob = true; }
-            if (this._worldPos.x > this.gardenLimits.hx) { this._worldPos.x = this.gardenLimits.hx; oob = true; }
-            if (this._worldPos.z < -this.gardenLimits.hz) { this._worldPos.z = -this.gardenLimits.hz; oob = true; }
-            if (this._worldPos.z > this.gardenLimits.hz) { this._worldPos.z = this.gardenLimits.hz; oob = true; }
-
-            // Sprofondamento estremo sotto la sabbia (caduto fuori dal mondo)
-            if (this._worldPos.y < this.gardenLimits.minY - 0.2) {
-              this._worldPos.y = this.gardenLimits.minY + 0.1; // Lo salva riportandolo 10cm sopra la sabbia.
-              oob = true;
-            }
-
-            if (oob) {
-              // Azzera la velocità residua per evitare che l'oggetto "rimbalzi" fuori di nuovo.
-              body.setLinvel({ x: 0, y: 0, z: 0 }, true);
-              body.setAngvel({ x: 0, y: 0, z: 0 }, true);
-
-              // Riconverte la posizione corretta in coordinate mondo, richieste da Rapier per il riposizionamento.
-              this._correctedWorld.copy(this._worldPos);
-              mesh.parent.localToWorld(this._correctedWorld);
-              body.setTranslation({ x: this._correctedWorld.x, y: this._correctedWorld.y, z: this._correctedWorld.z }, true);
-            }
-          }
+          this._enforceGardenLimits(mesh, body);
         }
 
         mesh.position.copy(this._worldPos);
         mesh.quaternion.copy(this._worldQuat);
-
       } else if (body.bodyType() === RAPIER.RigidBodyType.KinematicPositionBased) {
         // Corpi cinematici (sabbia, bonsai): sincronizza Three.js -> Rapier, direzione inversa rispetto ai corpi dinamici.
         mesh.getWorldPosition(this._worldPos);

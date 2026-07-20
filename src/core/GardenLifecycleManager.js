@@ -12,20 +12,23 @@ export class GardenLifecycleManager {
     // Riferimento centralizzato al giardino attivo
     this.garden = null;
     
-    // Riferimenti ai manager interattivi (verranno iniettati dopo il bootstrap)
+    // Riferimenti ai manager interattivi
     this.handTrackingManager = null;
     this.leafFallManager = null;
     this.rakeManager = null;
+    this.matchManager = null;
+    this.incenseManager = null;
     this.onPhysicsRestart = null;
   }
 
   /**
    * Collega i manager interattivi e la callback di riavvio della fisica.
    */
-  initManagers({ handTrackingManager, leafFallManager, rakeManager, incenseManager, onPhysicsRestart }) {
+  initManagers({ handTrackingManager, leafFallManager, rakeManager, matchManager, incenseManager, onPhysicsRestart }) {
     this.handTrackingManager = handTrackingManager;
     this.leafFallManager = leafFallManager;
     this.rakeManager = rakeManager;
+    this.matchManager = matchManager;
     this.incenseManager = incenseManager;
     this.onPhysicsRestart = onPhysicsRestart;
   }
@@ -98,8 +101,12 @@ export class GardenLifecycleManager {
     if (this.rakeManager) {
       this.rakeManager.garden = this.garden;
     }
+    if (this.matchManager) {
+      this.matchManager.garden = this.garden;
+    }
     if (this.incenseManager) {
       this.incenseManager.garden = this.garden;
+      this.incenseManager._resetIncense();
     }
 
     // 6. Riavvia il motore fisico per i nuovi elementi
