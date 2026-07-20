@@ -19,6 +19,7 @@ import { createBonsai, serializeBonsai, deserializeBonsai } from './BonsaiGenera
 import { createPond, serializePond, deserializePond, isInsidePond, POND_SURFACE_LIFT, generatePondPebbles } from './PondGenerator.js';
 import { createRake } from './RakeGenerator.js';
 import { createGong } from './GongGenerator.js';
+import { createMatchbox, createIncense } from './IncenseGenerator.js';
 import { createMatcapTexture } from '../utils/MatcapTextureFactory.js';
 import { sandBaseTexture } from '../utils/ProceduralTextureFactory.js';
 import {
@@ -88,6 +89,8 @@ export class GardenBase {
 
     this._addRake();
     this._addGong();
+    this._addMatchbox();
+    this._addIncense();
   }
 
   /**
@@ -282,11 +285,13 @@ export class GardenBase {
   _addRake() {
     this.rake = createRake();
     
-    const offsetX = -(this.width / 2 + 0.15); 
-    const liftY = this.sandTopY + 0.1;
+    const offsetX = -(this.width / 2 + 0.2); 
+    const offsetZ = -0.25; 
+    const liftY = this.sandTopY;
     
-    this.rake.position.set(offsetX, liftY, 0);
-    this.rake.rotation.set(0, Math.PI - Math.PI / 6, 0); 
+    this.rake.position.set(offsetX, liftY, offsetZ);
+    
+    this.rake.rotation.set(0, Math.PI, 0); 
     
     this.group.add(this.rake);
   }
@@ -294,13 +299,41 @@ export class GardenBase {
   _addGong() {
     this.gong = createGong();
     
-    const offsetX = (this.width / 2 + 0.25); 
+    const offsetX = -(this.width / 2 + 0.25); 
+    const offsetZ = 0.15; 
     const liftY = 0;
     
-    this.gong.position.set(offsetX, liftY, 0);
+    this.gong.position.set(offsetX, liftY, offsetZ);
     
-    this.gong.rotation.set(0, Math.PI + Math.PI / 6, 0); 
+    this.gong.rotation.set(0, Math.PI - Math.PI / 6, 0); 
     
     this.group.add(this.gong);
+  }
+
+  _addMatchbox() {
+    this.matchbox = createMatchbox();
+    
+    const offsetX = (this.width / 2 + 0.2); 
+    const offsetZ = -0.15; 
+    const liftY = 0;
+    
+    this.matchbox.position.set(offsetX, liftY, offsetZ);
+    this.matchbox.rotation.set(0, Math.PI, 0);
+    
+    this.group.add(this.matchbox);
+  }
+
+  _addIncense() {
+    this.incense = createIncense();
+    
+    const offsetX = (this.width / 2 + 0.25); 
+    const offsetZ = 0.15; 
+    const liftY = 0;
+    
+    this.incense.position.set(offsetX, liftY, offsetZ);
+    
+    this.incense.rotation.set(0, Math.PI / 5, 0); 
+    
+    this.group.add(this.incense);
   }
 }

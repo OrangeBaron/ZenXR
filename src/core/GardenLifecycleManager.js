@@ -22,10 +22,11 @@ export class GardenLifecycleManager {
   /**
    * Collega i manager interattivi e la callback di riavvio della fisica.
    */
-  initManagers({ handTrackingManager, leafFallManager, rakeManager, onPhysicsRestart }) {
+  initManagers({ handTrackingManager, leafFallManager, rakeManager, incenseManager, onPhysicsRestart }) {
     this.handTrackingManager = handTrackingManager;
     this.leafFallManager = leafFallManager;
     this.rakeManager = rakeManager;
+    this.incenseManager = incenseManager;
     this.onPhysicsRestart = onPhysicsRestart;
   }
 
@@ -96,6 +97,9 @@ export class GardenLifecycleManager {
     }
     if (this.rakeManager) {
       this.rakeManager.garden = this.garden;
+    }
+    if (this.incenseManager) {
+      this.incenseManager.garden = this.garden;
     }
 
     // 6. Riavvia il motore fisico per i nuovi elementi

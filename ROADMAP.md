@@ -72,7 +72,7 @@ Questo documento definisce le fasi di sviluppo iterativo per il progetto ZenXR, 
 * Aggiungere `AudioManager.js`: suoni spaziali (`PositionalAudio`) per gli urti fisici tra le rocce (ASMR).
 * *Nota:* Le foglie rimosse col pinch diventano corpi rigidi e cadono a terra prima di dissolversi.
 
-## Fase 8: Strumenti del Giardino (Rastrello, Sabbia, Gong e Incenso)
+## ✅ Fase 8: Strumenti del Giardino (Rastrello, Sabbia, Gong e Incenso)
 
 **Obiettivo:** Introdurre gli strumenti interattivi complessi e le logiche di reset e timer basate sulla manipolazione degli oggetti.
 

@@ -217,6 +217,35 @@ export class HandTrackingManager {
       }
     }
 
+    // 4. Compete la Scatola di Fiammiferi
+    if (this.garden && this.garden.matchbox) {
+      const maxDistSq = 0.15 * 0.15;
+      const pos = new THREE.Vector3();
+      this.garden.matchbox.getWorldPosition(pos);
+      const distSq = pos.distanceToSquared(pinchPoint);
+      if (distSq < maxDistSq && distSq < minDistanceSq) {
+        minDistanceSq = distSq;
+        closestObject = this.garden.matchbox;
+        closestType = 'matchbox';
+      }
+    }
+
+    // 5. Compete l'Incenso
+    if (this.garden && this.garden.incense) {
+      const maxDistSq = 0.12 * 0.12;
+      const pos = new THREE.Vector3();
+      this.garden.incense.getWorldPosition(pos);
+      
+      pos.y += 0.05; 
+
+      const distSq = pos.distanceToSquared(pinchPoint);
+      if (distSq < maxDistSq && distSq < minDistanceSq) {
+        minDistanceSq = distSq;
+        closestObject = this.garden.incense;
+        closestType = 'incense';
+      }
+    }
+
     if (!closestObject) return;
 
     // Recupera l'ancora corrente per la rotazione
@@ -233,6 +262,19 @@ export class HandTrackingManager {
         // Passiamo anche la rotazione della mano al momento della presa!
         this.physicsManager.setObjectGrabbed(closestObject, true, anchor.quaternion);
       }
+    } else if (closestType === 'matchbox') {
+      // NON afferriamo la scatola. Diciamo all'app di spawnare un fiammifero.
+      // Emetteremo un evento che il nuovo IncenseManager ascolterà.
+      this.stateManager?.notifyChange({ 
+        action: 'spawn_match', 
+        hand: hand, 
+        anchor: anchor 
+      });
+    } else if (closestType === 'incense') {
+      // Diciamo all'app di resettare l'incenso
+      this.stateManager?.notifyChange({ 
+        action: 'reset_incense' 
+      });
     }
   }
 
@@ -270,6 +312,8 @@ export class HandTrackingManager {
         this.stateManager?.notifyChange({ action: 'rock_moved' });
       }
     }
+
+    this.stateManager?.notifyChange({ action: 'pinch_end', hand: hand });
   }
 
   /** Rilascia forzatamente (senza notificare lo stato) tutte le foglie ancora in mano. */

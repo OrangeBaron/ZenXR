@@ -143,6 +143,34 @@ export class PhysicsManager {
   }
 
   /**
+   * Crea un corpo rigido dinamico per il fiammifero caduto.
+   */
+  addMatch(matchGroup) {
+    matchGroup.getWorldPosition(this._worldPos);
+    matchGroup.getWorldQuaternion(this._worldQuat);
+
+    const bodyDesc = RAPIER.RigidBodyDesc.dynamic()
+      .setTranslation(this._worldPos.x, this._worldPos.y, this._worldPos.z)
+      .setRotation(this._worldQuat)
+      .setLinearDamping(0.5)
+      .setAngularDamping(0.5);
+      
+    const rigidBody = this.world.createRigidBody(bodyDesc);
+    
+    // Raggio hitbox = 0.0015
+    // Altezza totale = 0.06 => Rapier vuole la "metà", quindi 0.03.
+    // Usiamo setTranslation per compensare il fatto che il cilindro grafico ha il pivot alla base.
+    const colliderDesc = RAPIER.ColliderDesc.cylinder(0.03, 0.0015)
+      .setTranslation(0, 0.03, 0)
+      .setDensity(200.0) 
+      .setFriction(0.8)
+      .setRestitution(0.1);
+      
+    this.world.createCollider(colliderDesc, rigidBody);
+    this.meshBodyMap.set(matchGroup, rigidBody);
+  }
+
+  /**
    * Avvia o ferma la presa di una roccia. Non la rende cinematica: azzera
    * invece la sua scala di gravità, così che possa muoversi verso la mano
    * generando collisioni reali con il resto del mondo fisico (velocity-based grab).

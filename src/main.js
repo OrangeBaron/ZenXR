@@ -27,6 +27,7 @@ import { GongInteractionManager } from './core/GongInteractionManager.js';
 import { RakeInteractionManager } from './core/RakeInteractionManager.js';
 import { GardenLifecycleManager } from './core/GardenLifecycleManager.js';
 import { AutoSaveManager } from './core/AutoSaveManager.js';
+import { IncenseInteractionManager } from './core/IncenseInteractionManager.js';
 
 /**
  * Rimuove l'overlay di boot statico una volta che l'infrastruttura 3D/XR
@@ -209,11 +210,19 @@ async function bootstrap() {
     stateManager
   });
 
+  const incenseManager = new IncenseInteractionManager({
+    scene: sceneManager.scene,
+    garden: garden,
+    stateManager: stateManager,
+    physicsManager: physicsManager
+  });
+
   // Forniamo i riferimenti dei moduli interattivi al LifecycleManager per i futuri reset in-game
   lifecycleManager.initManagers({
     handTrackingManager,
     leafFallManager,
     rakeManager,
+    incenseManager,
     onPhysicsRestart: () => {
       physicsReady = false;
       startGardenPhysics();
@@ -235,6 +244,7 @@ async function bootstrap() {
     physicsManager.update();
     leafFallManager.update(pose);
     rakeManager.update();
+    incenseManager.update(pose);
   
     sceneManager.render();
   });
