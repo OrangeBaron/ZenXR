@@ -20,7 +20,7 @@ export class HandTrackingManager {
     this._heldObjects = new Map();
     this._pinchAnchors = new Map();
 
-    // --- VARIABILI PRE-ALLOCATE PER EVITARE IL GARBAGE COLLECTION ---
+    // Variabili pre-allocate per evitare il Garbage Collection
     this._tempThumbPos = new THREE.Vector3();
     this._tempIndexPos = new THREE.Vector3();
     this._tempWristPos = new THREE.Vector3();
@@ -30,7 +30,10 @@ export class HandTrackingManager {
     this._tempTargetMtx = new THREE.Matrix4();
     this._tempZero = new THREE.Vector3(0, 0, 0);
     this._tempSearchPos = new THREE.Vector3();
-    // ----------------------------------------------------------------
+
+    // NUOVO: Cache degli oggetti interattivi
+    this._interactablesCache = null;
+    this._cachedGardenGroup = null;
 
     this.hands = [];
 
@@ -103,35 +106,56 @@ export class HandTrackingManager {
     this._executeGrabAction(hand, closestTarget.object);
   }
 
+  /**
+   * Costruisce un array piatto di tutti gli oggetti interattivi per evitare
+   * di attraversare l'intero grafo della scena ad ogni pinch.
+   */
+  _updateInteractablesCache() {
+    this._interactablesCache = [];
+    if (!this.garden || !this.garden.group) return;
+
+    this.garden.group.traverse((object) => {
+      if (object.userData && object.userData.interactable) {
+        this._interactablesCache.push(object);
+      }
+    });
+    
+    // Memorizziamo il riferimento al gruppo per capire se il giardino viene resettato
+    this._cachedGardenGroup = this.garden.group;
+  }
+
   // Cerca qualsiasi cosa abbia userData.interactable = true
   _findClosestInteractable(pinchPoint) {
     if (!this.garden || !this.garden.group) return null;
 
+    if (this._interactablesCache === null || this._cachedGardenGroup !== this.garden.group) {
+      this._updateInteractablesCache();
+    }
+
     let closest = null;
     let minDistSq = Infinity;
-    
-    // Usiamo il Vector3 pre-allocato invece di istanziarlo ad ogni pinch
-    const pos = this._tempSearchPos;
 
-    this.garden.group.traverse((object) => {
-      if (object.userData && object.userData.interactable) {
-        const detectionRadius = object.userData.interactionRadius || DEFAULT_PINCH_RADIUS;
-        const maxDistSq = detectionRadius * detectionRadius;
-        
-        object.getWorldPosition(pos);
-        
-        if (object.userData.interactionOffsetY) {
-            pos.y += object.userData.interactionOffsetY;
-        }
+    for (let i = 0; i < this._interactablesCache.length; i++) {
+      const object = this._interactablesCache[i];
 
-        const distSq = pos.distanceToSquared(pinchPoint);
+      if (!object.parent) continue;
 
-        if (distSq < maxDistSq && distSq < minDistSq) {
-          minDistSq = distSq;
-          closest = object;
-        }
+      const detectionRadius = object.userData.interactionRadius || DEFAULT_PINCH_RADIUS;
+      const maxDistSq = detectionRadius * detectionRadius;
+      
+      object.getWorldPosition(this._tempSearchPos);
+      
+      if (object.userData.interactionOffsetY) {
+        this._tempSearchPos.y += object.userData.interactionOffsetY;
       }
-    });
+
+      const distSq = this._tempSearchPos.distanceToSquared(pinchPoint);
+      
+      if (distSq < maxDistSq && distSq < minDistSq) {
+        minDistSq = distSq;
+        closest = object;
+      }
+    }
 
     return closest ? { object: closest, distanceSq: minDistSq } : null;
   }

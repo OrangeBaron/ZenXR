@@ -49,11 +49,9 @@ export class SandSurfaceManager {
     // La texture ora è un gradiente lineare verticale (1D)
     const size = 64;
     const canvas = document.createElement('canvas');
-    canvas.width = 1; // La larghezza non serve più
+    canvas.width = 1;
     canvas.height = size;
     const ctx = canvas.getContext('2d');
-
-    // Gradiente lungo l'asse Y del rettangolo
     const gradient = ctx.createLinearGradient(0, 0, 0, size);
     
     gradient.addColorStop(0.0, 'rgba(255, 255, 255, 0.0)');
@@ -64,22 +62,27 @@ export class SandSurfaceManager {
     
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, 1, size);
-
     const brushTexture = new THREE.CanvasTexture(canvas);
     
     this.brushMaterial = new THREE.MeshBasicMaterial({
       map: brushTexture,
       transparent: true,
-      blending: THREE.NormalBlending, // Sovrascrive i pixel sottostanti
+      blending: THREE.NormalBlending,
       depthTest: false,
       depthWrite: false
     });
 
-    // Creiamo un piano 1x1 base. Lo allungheremo dinamicamente per ogni segmento
-    const brushGeometry = new THREE.PlaneGeometry(1, 1); 
-    this.brush = new THREE.Mesh(brushGeometry, this.brushMaterial);
+    const brushGeometry = new THREE.PlaneGeometry(1, 1);
+    
+    // OTTIMIZZAZIONE: Usiamo un InstancedMesh per disegnare fino a 150 segmenti in un colpo solo
+    this.maxStrokes = 150;
+    this.brush = new THREE.InstancedMesh(brushGeometry, this.brushMaterial, this.maxStrokes);
+    this.brush.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.brush.visible = false;
     this.scene.add(this.brush);
+
+    // Dummy per calcolare le matrici senza usare `new` nei loop
+    this._dummy = new THREE.Object3D();
   }
 
   getTexture() {
@@ -136,37 +139,44 @@ export class SandSurfaceManager {
     this.bgMesh.visible = false;
     this.brush.visible = true;
     
-    for (const seg of segments) {
-      // 1. Calcola il vettore di spostamento nella scena FBO
+    // Limitiamo il numero di segmenti al massimo consentito per sicurezza
+    const count = Math.min(segments.length, this.maxStrokes);
+    this.brush.count = count;
+
+    for (let i = 0; i < count; i++) {
+      const seg = segments[i];
+      
+      // 1. Calcola il vettore di spostamento
       const dx = seg.end.x - seg.start.x;
-      const dy = -(seg.end.z - seg.start.z); // Z in Three.js è invertito rispetto a Y
+      const dy = -(seg.end.z - seg.start.z);
       
       const distance = Math.hypot(dx, dy);
-      const angle = Math.atan2(dy, dx); // Angolo del tracciato
+      const angle = Math.atan2(dy, dx);
       
-      // 2. Trova il centro esatto tra il punto di partenza e arrivo
+      // 2. Trova il centro
       const midX = seg.start.x + dx / 2;
       const midY = -seg.start.z + dy / 2;
-
-      this.brush.position.set(midX, midY, 0);
       
-      // 3. Ruota il rettangolo nella direzione del movimento
-      this.brush.rotation.z = angle;
+      // 3. Applica la trasformazione al dummy
+      this._dummy.position.set(midX, midY, 0);
+      this._dummy.rotation.set(0, 0, angle);
+      this._dummy.scale.set(distance + 0.001, 0.04, 1);
+      this._dummy.updateMatrix();
       
-      // 4. Scala il rettangolo: Lungo come la distanza (+ margine)
-      // e Largo abbastanza da chiudere i buchi tra i denti (~ 3.5 centimetri)
-      this.brush.scale.set(distance + 0.001, 0.04, 1);
-      
-      this.brush.updateMatrixWorld(true);
-      this.renderer.render(this.scene, this.camera);
+      // 4. Salva la matrice nell'InstancedMesh
+      this.brush.setMatrixAt(i, this._dummy.matrix);
     }
-
+    
+    // Notifica alla GPU che le matrici sono cambiate e renderizza UNA SOLA VOLTA
+    this.brush.instanceMatrix.needsUpdate = true;
+    this.renderer.render(this.scene, this.camera);
+    
     this.renderer.autoClear = true;
     
     this.renderer.setRenderTarget(currentRenderTarget);
     this.renderer.setClearColor(oldClearColor, oldClearAlpha);
     this.renderer.xr.enabled = xrEnabled;
-
+    
     const temp = this.targetA;
     this.targetA = this.targetB;
     this.targetB = temp;
