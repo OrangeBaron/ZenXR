@@ -36,6 +36,7 @@ export function createRake({
   const handleGeometry = new THREE.CylinderGeometry(handleRadius, handleRadius, handleLength, 8);
   handleGeometry.rotateX(Math.PI / 2); 
   const handle = new THREE.Mesh(handleGeometry, woodMaterial);
+  handle.userData.physics = { shape: 'convexHull' };
   handle.castShadow = true;
   group.add(handle);
 
@@ -44,6 +45,7 @@ export function createRake({
   const crossbarDepth = 0.015;
   const crossbarGeometry = new THREE.BoxGeometry(crossbarWidth, crossbarHeight, crossbarDepth);
   const crossbar = new THREE.Mesh(crossbarGeometry, woodMaterial);
+  crossbar.userData.physics = { shape: 'convexHull' };
   // La posizioniamo a un'estremità del manico (asse Z negativo)
   crossbar.position.set(0, 0, -handleLength / 2);
   crossbar.castShadow = true;
@@ -60,6 +62,7 @@ export function createRake({
   const spacing = crossbarWidth / (teethCount + 1);
   for (let i = 0; i < teethCount; i++) {
     const tooth = new THREE.Mesh(toothGeometry, woodMaterial);
+    tooth.userData.physics = { shape: 'convexHull' };
     const xOffset = -crossbarWidth / 2 + spacing * (i + 1);
     // Posizioniamo il dente sotto la traversa
     tooth.position.set(xOffset, -crossbarHeight / 2, -handleLength / 2);
@@ -67,8 +70,26 @@ export function createRake({
     group.add(tooth);
   }
 
-  // Marcatura utile per le interazioni o il salvataggio futuro
-  group.userData.kind = 'rake';
+  // Marcatura per interazioni, salvataggio e logica fisica
+  group.userData = {
+    kind: 'rake',
+    interactable: true,
+    interactionRadius: 0.2,
+    attachToHand: false,
+    physicalGrab: true,
+    physics: {
+      type: 'dynamic',
+      isCompoundRoot: true,
+      density: 800.0,
+      friction: 0.15,
+      restitution: 0.0,
+      linearDamping: 0.8,
+      angularDamping: 0.8,
+      gravityScale: 0.0,
+      ccdEnabled: true,
+      collisionGroups: 0x0004FFFD
+    }
+  };
 
   return group;
 }

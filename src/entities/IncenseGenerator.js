@@ -91,7 +91,14 @@ export function createMatchbox() {
     const rootGroup = new THREE.Group();
     matchboxGroup.position.y = 0.017;
     rootGroup.add(matchboxGroup);
-    rootGroup.userData.kind = 'matchbox';
+
+    rootGroup.userData = {
+        kind: 'matchbox',
+        interactable: true,
+        interactionRadius: 0.15,
+        attachToHand: false,
+        physicalGrab: false
+    };
     
     return rootGroup;
 }
@@ -143,9 +150,14 @@ export function createIncense() {
     rootGroup.add(incenseSet);
     
     rootGroup.userData = {
-        kind: 'incense_set',
+        kind: 'incense',
         burnPart: burnPart,
-        glowPart: incenseGlow
+        glowPart: incenseGlow,
+        interactable: true,
+        interactionRadius: 0.12,
+        interactionOffsetY: 0.05,
+        attachToHand: false,
+        physicalGrab: false
     };
     
     return rootGroup;
@@ -201,7 +213,19 @@ export function createSingleMatch() {
         woodMesh: sWood, 
         tipMesh: sTip,   
         burntWoodMat: burntWoodMat,
-        burntTipMat: burntTipMat
+        burntTipMat: burntTipMat,
+        physics: {
+          type: 'dynamic',
+          shape: 'cylinder',
+          radius: 0.0015,
+          halfHeight: 0.03,
+          offsetY: 0.03,
+          density: 200.0,
+          friction: 0.8,
+          restitution: 0.1,
+          linearDamping: 0.5,
+          angularDamping: 0.5
+        }
     };
 
     return singleMatch;

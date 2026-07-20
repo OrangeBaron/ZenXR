@@ -117,15 +117,10 @@ async function bootstrap() {
   startGardenPhysics = () => {
     if (physicsReady) return;
     physicsReady = true;
-
     const activeGarden = lifecycleManager.garden;
-    physicsManager.addStaticFloor(activeGarden.sand);
-    physicsManager.addStaticBonsai(activeGarden.bonsai);
-    activeGarden.rocks.forEach(rock => physicsManager.addRock(rock));
     
-    if (activeGarden.rake) {
-      physicsManager.addRake(activeGarden.rake);
-    }
+    // Invece di chiamare singoli metodi uno ad uno, deleghiamo al PhysicsManager
+    physicsManager.addGardenElements(activeGarden.group);
 
     const gongManager = new GongInteractionManager({
       gong: activeGarden.gong,
@@ -133,7 +128,8 @@ async function bootstrap() {
       onReset: () => lifecycleManager.resetGarden()
     });
     
-    physicsManager.addGong(activeGarden.gong, () => gongManager.handleHit());
+    // Assegnamo la callback di impatto al gong
+    physicsManager.onGongHitCallback = () => gongManager.handleHit();
   };
 
   const stateManager = new StateManager();
@@ -195,6 +191,28 @@ async function bootstrap() {
     scene: sceneManager.scene,
     garden: garden,
     stateManager: stateManager
+  });
+
+  // --- EVENT ROUTER ---
+  stateManager.onChange((event) => {
+    const detail = event.detail;
+    if (!detail) return;
+
+    if (detail.action === 'interactable_grabbed') {
+      if (detail.kind === 'matchbox') {
+        stateManager.notifyChange({ action: 'spawn_match', hand: detail.hand, anchor: detail.anchor });
+      } else if (detail.kind === 'incense') {
+        stateManager.notifyChange({ action: 'reset_incense' });
+      }
+    } 
+    else if (detail.action === 'interactable_released') {
+      if (detail.kind === 'leaf') {
+        leafFallManager.addFallingLeaf(detail.object);
+        stateManager.notifyChange({ action: 'leaf_pruned' });
+      } else if (detail.kind === 'rock') {
+        stateManager.notifyChange({ action: 'rock_moved' });
+      }
+    }
   });
 
   lifecycleManager.initManagers({

@@ -60,7 +60,7 @@ export class GardenBase {
     this.group.visible = false;
 
     this._buildTray();
-    this._buildSand(sandTexture); // Passiamo la texture dinamica
+    this._buildSand(sandTexture);
     this._buildBambooFence();
 
     if (savedState?.pond) {
@@ -125,6 +125,14 @@ export class GardenBase {
     const tray = new THREE.Mesh(trayGeometry, trayMaterial);
     tray.position.y = trayHeight / 2;
     tray.receiveShadow = true;
+    tray.userData.kind = 'sand_tray';
+    tray.userData.physics = {
+      type: 'kinematicPositionBased',
+      shape: 'tray',
+      wallHeight: 1.0,
+      wallThickness: 0.05,
+      wallGroups: 0x00020001
+    };
     this.group.add(tray);
 
     // Quota della superficie della sabbia: usata anche per bambù, bonsai e rocce.

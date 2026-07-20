@@ -40,7 +40,11 @@ function createSegmentedLimb({ length, baseRadius, tipRadius, segments, bendStre
     geometry.translate(0, segmentLength / 2, 0);
     const mesh = new THREE.Mesh(geometry, barkMaterial);
     mesh.castShadow = true;
-    mesh.userData.kind = 'branch'; 
+    mesh.userData.kind = 'branch';
+    mesh.userData.physics = {
+      type: 'kinematicPositionBased',
+      shape: 'convexHull'
+    };
     current.add(mesh);
 
     const nextJoint = new THREE.Group();
@@ -93,8 +97,15 @@ function addFoliageCluster(tip, branchLength) {
     );
     leaf.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
     leaf.castShadow = true;
-    leaf.userData.isDry = isDry; 
-    leaf.userData.kind = 'leaf'; 
+
+    leaf.userData = {
+      kind: 'leaf',
+      isDry: isDry,
+      interactable: isDry,
+      interactionRadius: 0.035,
+      attachToHand: true,
+      physicalGrab: false
+    };
 
     tip.add(leaf);
   }
@@ -225,7 +236,22 @@ function createNodeMesh(data) {
   const mesh = new THREE.Mesh(geometry, material);
   mesh.castShadow = true;
   mesh.userData.kind = data.kind;
-  if (isLeaf) mesh.userData.isDry = data.isDry;
+
+  if (isLeaf) {
+    mesh.userData = {
+      kind: 'leaf',
+      isDry: data.isDry,
+      interactable: data.isDry,
+      interactionRadius: 0.035,
+      attachToHand: true,
+      physicalGrab: false
+    };
+  } else if (data.kind === 'branch') {
+    mesh.userData.physics = {
+      type: 'kinematicPositionBased',
+      shape: 'convexHull'
+    };
+  }
 
   return mesh;
 }

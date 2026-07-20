@@ -37,6 +37,7 @@ export function createGong() {
 
   // --- STRUTTURA DI SUPPORTO ---
   const standGroup = new THREE.Group();
+  standGroup.userData = { physics: { type: 'kinematicPositionBased', isCompoundRoot: true } };
   
   // Parametri struttura
   const legHeight = 0.20;
@@ -46,12 +47,14 @@ export function createGong() {
   // Gamba Sinistra
   const legGeo = new THREE.CylinderGeometry(legRadius, legRadius, legHeight, 8);
   const leftLeg = new THREE.Mesh(legGeo, woodMaterial);
+  leftLeg.userData.physics = { shape: 'convexHull' };
   leftLeg.position.set(-standWidth / 2, legHeight / 2, 0);
   leftLeg.castShadow = true;
   standGroup.add(leftLeg);
 
   // Gamba Destra
   const rightLeg = new THREE.Mesh(legGeo, woodMaterial);
+  rightLeg.userData.physics = { shape: 'convexHull' };
   rightLeg.position.set(standWidth / 2, legHeight / 2, 0);
   rightLeg.castShadow = true;
   standGroup.add(rightLeg);
@@ -60,6 +63,7 @@ export function createGong() {
   const topBarGeo = new THREE.CylinderGeometry(legRadius, legRadius, standWidth + 0.04, 8);
   topBarGeo.rotateZ(Math.PI / 2);
   const topBar = new THREE.Mesh(topBarGeo, woodMaterial);
+  topBar.userData.physics = { shape: 'convexHull' };
   topBar.position.set(0, legHeight - 0.01, 0);
   topBar.castShadow = true;
   standGroup.add(topBar);
@@ -67,11 +71,13 @@ export function createGong() {
   // Basi dei piedi (per stabilità visiva)
   const footGeo = new THREE.BoxGeometry(0.04, 0.01, 0.06);
   const leftFoot = new THREE.Mesh(footGeo, woodMaterial);
+  leftFoot.userData.physics = { shape: 'convexHull' };
   leftFoot.position.set(-standWidth / 2, 0.005, 0);
   leftFoot.castShadow = true;
   standGroup.add(leftFoot);
 
   const rightFoot = new THREE.Mesh(footGeo, woodMaterial);
+  rightFoot.userData.physics = { shape: 'convexHull' };
   rightFoot.position.set(standWidth / 2, 0.005, 0);
   rightFoot.castShadow = true;
   standGroup.add(rightFoot);
@@ -81,6 +87,7 @@ export function createGong() {
   // --- PIATTO DEL GONG ---
   // Raggruppiamo il piatto e le corde per poterli animare insieme
   const plateGroup = new THREE.Group();
+  plateGroup.userData = { physics: { type: 'kinematicPositionBased', isCompoundRoot: true } };
   // Posizioniamo il centro del plateGroup in alto (dove si aggancia la corda)
   // per facilitare una rotazione a pendolo realistica.
   const suspensionY = legHeight - 0.01; 
@@ -97,7 +104,15 @@ export function createGong() {
   plateMesh.castShadow = true;
   
   // Identificatore cruciale per le collisioni fisiche in seguito
-  plateMesh.userData.kind = 'gong_plate'; 
+  plateMesh.userData = {
+    kind: 'gong_plate',
+    physics: {
+      shape: 'cuboid',
+      extents: [0.06, 0.06, 0.015],
+      activeEvents: true,
+      id: 'gong_plate'
+    }
+  }; 
   
   plateGroup.add(plateMesh);
 

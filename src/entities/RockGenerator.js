@@ -80,14 +80,27 @@ export function createRock({
   mesh.receiveShadow = true;
   mesh.castShadow = true; // Aggiunto per sicurezza
 
-  // Salviamo i parametri costruttivi nel userData per la serializzazione
+  // Salviamo i parametri costruttivi e i tag di interazione
   mesh.userData = {
     kind: 'rock',
     seed,
     radius,
     detail,
     noiseStrength,
-    color
+    color,
+    interactable: true,
+    interactionRadius: 0.08,
+    attachToHand: false,
+    physicalGrab: true,
+    physics: {
+      type: 'dynamic',
+      shape: 'convexHull',
+      density: 3000.0,
+      friction: 0.8,
+      restitution: 0.1,
+      linearDamping: 0.3,
+      angularDamping: 0.1
+    }
   };
 
   const mossCount = Math.floor(radius * 800);
